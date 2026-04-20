@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPayload } from '../payloadBuilder';
-import { DEFAULT_RULEBOOK } from '../defaultRulebook';
+import { DEFAULT_RULES } from '../defaultRules';
 import type { GameContext, AppSettings } from '../../types';
 
 const baseContext = (): GameContext => ({
@@ -55,8 +55,8 @@ const baseSettings = (): AppSettings => ({
     contextLimit: 8192,
 } as unknown as AppSettings);
 
-describe('buildPayload — default rulebook fallback', () => {
-    it('injects DEFAULT_RULEBOOK when rulesRaw is empty', () => {
+describe('buildPayload — default rules fallback', () => {
+    it('injects DEFAULT_RULES when rulesRaw is empty', () => {
         const ctx = baseContext();
         ctx.rulesRaw = '';
         const result = buildPayload(baseSettings(), ctx, [], 'I look around');
@@ -66,22 +66,22 @@ describe('buildPayload — default rulebook fallback', () => {
         expect(firstSystem!.content).toContain('Impartial GM');
     });
 
-    it('uses user-provided rulesRaw instead of DEFAULT_RULEBOOK', () => {
+    it('uses user-provided rulesRaw instead of DEFAULT_RULES', () => {
         const ctx = baseContext();
         ctx.rulesRaw = '# My Custom Rules\nNo magic allowed.';
         const result = buildPayload(baseSettings(), ctx, [], 'I look around');
         const firstSystem = result.messages.find(m => m.role === 'system');
         expect(firstSystem).toBeDefined();
         expect(firstSystem!.content).toContain('My Custom Rules');
-        expect(firstSystem!.content).not.toContain(DEFAULT_RULEBOOK);
+        expect(firstSystem!.content).not.toContain(DEFAULT_RULES);
     });
 
-    it('DEFAULT_RULEBOOK contains all expected sections', () => {
-        expect(DEFAULT_RULEBOOK).toContain('<OUTPUT_RULES>');
-        expect(DEFAULT_RULEBOOK).toContain('<NPC_ENGINE>');
-        expect(DEFAULT_RULEBOOK).toContain('<NAME_GEN>');
-        expect(DEFAULT_RULEBOOK).toContain('<LORE_TOOL>');
-        expect(DEFAULT_RULEBOOK).toContain('<ACTION_RESOLUTION>');
-        expect(DEFAULT_RULEBOOK).toContain('<EVENT_PROTOCOL>');
+    it('DEFAULT_RULES contains all expected sections', () => {
+        expect(DEFAULT_RULES).toContain('<OUTPUT_RULES>');
+        expect(DEFAULT_RULES).toContain('<NPC_ENGINE>');
+        expect(DEFAULT_RULES).toContain('<NAME_GEN>');
+        expect(DEFAULT_RULES).toContain('<LORE_TOOL>');
+        expect(DEFAULT_RULES).toContain('<ACTION_RESOLUTION>');
+        expect(DEFAULT_RULES).toContain('<EVENT_PROTOCOL>');
     });
 });

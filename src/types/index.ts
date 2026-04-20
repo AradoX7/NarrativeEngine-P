@@ -1,4 +1,4 @@
-export type ApiFormat = 'openai' | 'ollama';
+export type ApiFormat = 'openai' | 'ollama' | 'claude' | 'gemini';
 
 export type PipelinePhase =
     | 'idle'
@@ -242,13 +242,15 @@ export type LoreChunk = {
     content: string;
     tokens: number;
     alwaysInclude: boolean;
-    triggerKeywords: string[];  // exact keywords that activate this chunk
-    scanDepth: number;          // how many recent messages to scan (default: 3)
+    triggerKeywords: string[];
+    scanDepth: number;
     category: LoreCategory;
-    linkedEntities: string[];   // Names of NPCs, factions, locations referenced
-    parentSection?: string;     // The ## parent header this ### belongs under
-    priority: number;           // 0-10, higher = more important
-    summary?: string;           // One-line auto-summary for recommender index
+    linkedEntities: string[];
+    parentSection?: string;
+    priority: number;
+    summary?: string;
+    group?: string;
+    groupWeight?: number;
 };
 
 export type EngineSeed = {
@@ -428,4 +430,61 @@ export type TimelineEvent = {
     summary: string;      // "Aldric was slain by the Goblin King"
     importance: number;   // 1-10
     source: 'regex' | 'llm' | 'manual';
+};
+
+// ─── World Map System ─────────────────────────────────────────────────
+
+export type BiomeDefinition = {
+    id: string;
+    label: string;
+    color: string;
+    registry: string;
+    travelCost?: number;
+    tags?: string[];
+};
+
+export type WorldAnchor = {
+    name: string;
+    type: 'capital' | 'city' | 'town' | 'dungeon' | 'landmark' | 'natural';
+    biome: string;
+    position: 'center' | 'north' | 'south' | 'east' | 'west' | 'northeast' | 'northwest' | 'southeast' | 'southwest';
+    tags: string[];
+    footprint: number;
+};
+
+export type WorldCell = {
+    x: number;
+    y: number;
+    biome: string;
+    elevation: number;
+    isOcean: boolean;
+    anchorName?: string | null;
+};
+
+export type BiomeZone = {
+    biome: string;
+    position: 'center' | 'north' | 'south' | 'east' | 'west' | 'northeast' | 'northwest' | 'southeast' | 'southwest';
+};
+
+export type WorldMap = {
+    width: number;
+    height: number;
+    cells: WorldCell[];
+    anchors: WorldAnchor[];
+    biomeZones: BiomeZone[];
+    seed: number;
+    worldType: 'single_continent' | 'two_continents' | 'archipelago' | 'coastal_kingdom';
+    generatedAt: number;
+};
+
+export type WorldMapGenerateResult = {
+    worldType: WorldMap['worldType'];
+    anchors: WorldAnchor[];
+    biomeZones: BiomeZone[];
+};
+
+export type TravelState = {
+    playerPosition: { x: number; y: number };
+    travelMethod: string;
+    destination?: { x: number; y: number };
 };

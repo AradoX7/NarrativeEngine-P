@@ -4,7 +4,7 @@ import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert, buildKnowledgeBoundary } from './npcBehaviorDirective';
 import { minifyLoreChunk, minifyNPC } from './contextMinifier';
 import { resolveTimeline, formatResolvedForContext } from './timelineResolver';
-import { DEFAULT_RULEBOOK } from './defaultRulebook';
+import { DEFAULT_RULES } from './defaultRules';
 
 
 /**
@@ -83,7 +83,8 @@ export function buildPayload(
     // --- 2. Calculate Stable Truth & Summary (High Priority) ---
     const stableParts: string[] = [];
     if (sceneNumber) stableParts.push(`[CURRENT SCENE: #${sceneNumber}]\n[ENGINE: Scene header is auto-injected. Do NOT write "Scene #${sceneNumber}" yourself. Start your response with the date/location/NPCs line directly.]`);
-    stableParts.push(context.rulesRaw || DEFAULT_RULEBOOK);
+    const effectiveRules = context.rulesRaw || DEFAULT_RULES;
+    if (effectiveRules) stableParts.push(effectiveRules);
     if (context.canonStateActive && context.canonState) {
         stableParts.push(context.canonState);
     }

@@ -43,7 +43,6 @@ server.bundle.cjs
 # Debug dumps
 scene310_*.txt
 scene310_*.md
-stabs.json
 
 # Repomix / codebase export files
 repomix-output.xml

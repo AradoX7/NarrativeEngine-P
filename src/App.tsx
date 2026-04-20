@@ -11,6 +11,7 @@ import { BackupModal } from './components/BackupModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
+import { MapPanel } from './components/map/MapPanel';
 import { hydrateCampaign } from './store/campaignHydrator';
 
 export default function App() {
@@ -133,6 +134,7 @@ export default function App() {
         <ContextDrawer />
         <ChatArea />
       </div>
+      <MapPanel />
       <SettingsModal />
       <NPCLedgerModal />
       <BackupModal />

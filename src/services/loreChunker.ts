@@ -139,7 +139,7 @@ function generateSummary(_header: string, content: string): string | undefined {
 function extractLinkedEntities(chunks: LoreChunk[]) {
     const entityDict = chunks.map(c => {
         let name = c.header.replace(/\[CHUNK:\s*[A-Z_]+[—\-\s]*\]/i, '').trim();
-        name = name.split(/[—–-]/)[0].trim(); // Take the portion before a dash
+        name = name.split(/[—–-]/)[0].trim();
         return { name, id: c.id, nameLower: name.toLowerCase() };
     }).filter(e => e.nameLower.length > 3);
 
@@ -152,6 +152,16 @@ function extractLinkedEntities(chunks: LoreChunk[]) {
             }
         }
         chunk.linkedEntities = Array.from(linked);
+    }
+}
+
+function assignGroups(chunks: LoreChunk[]) {
+    for (const chunk of chunks) {
+        if (chunk.alwaysInclude) continue;
+        if (chunk.parentSection) {
+            chunk.group = slugify(chunk.parentSection);
+            chunk.groupWeight = chunk.priority;
+        }
     }
 }
 
@@ -186,6 +196,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
             const id = getUniqueId(baseId);
             const alwaysInclude = shouldAlwaysInclude(currentHeader);
             const category = classifyCategory(currentHeader, content, parentHeader);
+            const priority = assignPriority(category, alwaysInclude);
             
             // Extract Rag metadata blocks if any overrides exist
             let finalScanDepth = 3;
@@ -205,7 +216,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 category,
                 linkedEntities: [], // Populated post-processing
                 parentSection: parentHeader || undefined,
-                priority: assignPriority(category, alwaysInclude),
+                priority,
                 summary: generateSummary(currentHeader, content)
             });
         }
@@ -253,6 +264,7 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     }
 
     extractLinkedEntities(chunks);
+    assignGroups(chunks);
 
     return chunks;
 }
