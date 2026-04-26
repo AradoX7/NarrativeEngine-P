@@ -133,8 +133,10 @@ export async function sendMessage(
                                 onChunk(fullText);
                             }
 
-                            if (delta?.reasoning_content) {
-                                reasoningContent += delta.reasoning_content;
+                            // Capture reasoning — handle both field names seen in the wild
+                            const reasoningDelta: string = delta?.reasoning_content ?? delta?.reasoning ?? '';
+                            if (reasoningDelta) {
+                                reasoningContent += reasoningDelta;
                             }
 
                             if (delta?.tool_calls && delta.tool_calls.length > 0) {

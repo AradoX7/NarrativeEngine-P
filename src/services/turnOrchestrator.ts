@@ -156,7 +156,7 @@ export async function runTurn(
         callbacks.setStreaming(true);
 
         const allowTools = toolCallCount < 2 && apiRetryCount < 2;
-        const requestPayload = sanitizePayloadForApi(currentPayload, allowTools);
+        const requestPayload = sanitizePayloadForApi(currentPayload, allowTools, provider?.modelName);
 
         const tools = allowTools ? TOOL_DEFINITIONS : undefined;
 
@@ -186,7 +186,8 @@ export async function runTurn(
                             id: toolCall.id,
                             type: 'function' as const,
                             function: { name: toolCall.name, arguments: toolCall.arguments }
-                        }]
+                        }],
+                        ...(reasoningContent ? { reasoning_content: reasoningContent } : {})
                     });
 
                     currentPayload.push({
@@ -236,7 +237,8 @@ export async function runTurn(
                             id: toolCall.id,
                             type: 'function' as const,
                             function: { name: toolCall.name, arguments: toolCall.arguments }
-                        }]
+                        }],
+                        ...(reasoningContent ? { reasoning_content: reasoningContent } : {})
                     });
 
                     currentPayload.push({
@@ -283,7 +285,12 @@ export async function runTurn(
                     ? `${accumulatedContent}\n\n${stripLLMSceneHeader(finalText)}`
                     : baseText;
                 callbacks.updateLastAssistant(engineText);
-                if (reasoningContent) {
+                // Only store reasoning_content when this is the FIRST (and only) response for this
+                // assistant message — i.e. not a post-tool-call continuation. If accumulatedContent
+                // is non-empty it means a tool call already ran and reasoning_content was already
+                // stored on this message from that first response; overwriting it with the second
+                // response's reasoning would corrupt the history and cause 400 on the next turn.
+                if (reasoningContent && !accumulatedContent) {
                     callbacks.updateLastMessage({ reasoning_content: reasoningContent });
                 }
                 
