@@ -22,7 +22,7 @@ export const DEFAULT_CONTEXT = {
     surpriseDC: 95, encounterDC: 198, worldEventDC: 498,
     canonStateActive: false, headerIndexActive: false, starterActive: false,
     continuePromptActive: false, inventoryActive: false, characterProfileActive: false,
-    surpriseEngineActive: true, encounterEngineActive: true, worldEngineActive: true,
+    surpriseEngineActive: false, encounterEngineActive: true, worldEngineActive: true,
     diceFairnessActive: true, sceneNote: '', sceneNoteActive: false, sceneNoteDepth: 3,
     worldVibe: '',
     worldEventConfig: { initialDC: 498, dcReduction: 2, who: [] as string[], where: [] as string[], why: [] as string[], what: [] as string[] },

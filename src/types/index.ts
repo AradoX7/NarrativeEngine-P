@@ -335,6 +335,31 @@ export const DEFAULT_VISUAL_PROFILE: NPCVisualProfile = {
     hairStyle: '', eyeColor: '', skinTone: '', gait: '', distinctMarks: '', clothing: '', artStyle: 'Anime',
 };
 
+export type NPCBehavioralTrigger = {
+    keyword: string;
+    shift: string;
+};
+
+export type NPCPressureHistory = {
+    turn: number;
+    type: 'ignored' | 'engaged';
+    delta: number;
+    reason: string;
+};
+
+export type NPCDrives = {
+    coreWant: string;
+    sessionWant: string;
+    sceneWant: string;
+};
+
+export type NPCPressure = {
+    ignored: number;
+    engaged: number;
+    lastDecayTurn: number;
+    history: NPCPressureHistory[];
+};
+
 export type NPCEntry = {
     id: string;
     name: string;
@@ -358,6 +383,11 @@ export type NPCEntry = {
     };
     shiftNote?: string;
     shiftTurnCount?: number;
+    drives?: NPCDrives;
+    behavioralTriggers?: NPCBehavioralTrigger[];
+    hardBoundaries?: string[];
+    softBoundaries?: string[];
+    pressure?: NPCPressure;
 };
 
 
@@ -645,7 +675,7 @@ export function migrateLegacyContext(ctx: Partial<GameContext>): GameContext {
         continuePromptActive: false,
         inventoryActive: false,
         characterProfileActive: false,
-        surpriseEngineActive: true,
+        surpriseEngineActive: false,
         encounterEngineActive: true,
         worldEngineActive: true,
         diceFairnessActive: true,

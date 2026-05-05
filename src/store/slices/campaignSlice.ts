@@ -210,7 +210,7 @@ export const defaultContext: GameContext = {
     continuePromptActive: false,
     inventoryActive: false,
     characterProfileActive: false,
-    surpriseEngineActive: true,
+    surpriseEngineActive: false,
     encounterEngineActive: true,
     worldEngineActive: true,
     diceFairnessActive: true,

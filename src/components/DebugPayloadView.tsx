@@ -33,7 +33,7 @@ export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload
                     <span className="text-text-dim text-[8px]">({sections.length} sections)</span>
                 )}
             </summary>
-            <div className="mt-2 space-y-1">
+            <div className="mt-2 space-y-1 max-h-[50vh] overflow-y-auto">
                 {hasSections ? (
                     sections.map((section, idx) => {
                         const colorClass = classificationColors[section.classification || ''] || 'text-text-dim border-border/40';
@@ -58,7 +58,7 @@ export const DebugPayloadView: React.FC<DebugPayloadViewProps> = ({ debugPayload
                         );
                     })
                 ) : (
-                    <pre className="bg-void p-2 overflow-x-auto text-text-dim text-[9px] font-mono leading-tight whitespace-pre-wrap break-all">
+                    <pre className="bg-void p-2 overflow-x-auto overflow-y-auto max-h-[300px] text-text-dim text-[9px] font-mono leading-tight whitespace-pre-wrap break-all">
                         {JSON.stringify(raw, null, 2)}
                     </pre>
                 )}

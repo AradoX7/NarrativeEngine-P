@@ -4,19 +4,72 @@ import { sendMessage } from './llmService';
 import { extractJson } from './payloadBuilder';
 import { uid } from '../utils/uid';
 
+const RETRY_SUFFIX = '\n\nIMPORTANT: Your previous response was not valid JSON. Respond with ONLY valid JSON. No markdown fences, no comments, no trailing commas, no extra text before or after the JSON.';
+
+async function sendMessageAndParseJson(
+    provider: EndpointConfig | ProviderConfig,
+    messages: OpenAIMessage[],
+    contextLabel: string
+): Promise<{ parsed: any; rawStr: string }> {
+    let fullJsonStr = '';
+
+    await sendMessage(
+        provider,
+        messages,
+        (chunk) => { fullJsonStr = chunk; },
+        () => { },
+        (err) => console.error(`[${contextLabel}] Stream error:`, err)
+    );
+
+    if (!fullJsonStr) throw new Error(`[${contextLabel}] Empty response from LLM`);
+
+    const cleanStr = extractJson(fullJsonStr);
+
+    try {
+        return { parsed: JSON.parse(cleanStr), rawStr: cleanStr };
+    } catch (firstErr) {
+        console.warn(`[${contextLabel}] First parse failed, retrying with stricter prompt...`, firstErr);
+        console.warn(`[${contextLabel}] Raw JSON was:`, cleanStr);
+
+        const retryMessages: OpenAIMessage[] = [
+            ...messages,
+            { role: 'assistant', content: fullJsonStr },
+            { role: 'user', content: RETRY_SUFFIX }
+        ];
+
+        let retryStr = '';
+        await sendMessage(
+            provider,
+            retryMessages,
+            (chunk) => { retryStr = chunk; },
+            () => { },
+            (err) => console.error(`[${contextLabel}] Retry stream error:`, err)
+        );
+
+        if (!retryStr) throw new Error(`[${contextLabel}] Empty retry response`);
+
+        const retryClean = extractJson(retryStr);
+        try {
+            return { parsed: JSON.parse(retryClean), rawStr: retryClean };
+        } catch (retryErr) {
+            console.error(`[${contextLabel}] Retry parse also failed:`, retryErr);
+            console.error(`[${contextLabel}] Retry raw JSON:`, retryClean);
+            throw retryErr;
+        }
+    }
+}
+
 export async function generateNPCProfile(
     provider: EndpointConfig | ProviderConfig,
     history: ChatMessage[],
     npcName: string,
     addNPCToStore: (npc: NPCEntry) => void
 ): Promise<void> {
-    try {
-        console.log(`[NPC Generator] Initiating background profile generation for: ${npcName}`);
+    console.log(`[NPC Generator] Initiating background profile generation for: ${npcName}`);
 
-        // Grab recent context (last ~15 messages should give enough flavor)
-        const recentHistory = history.slice(-15).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+    const recentHistory = history.slice(-15).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
 
-        const systemPrompt = `You are a background GM assistant running silently.
+    const systemPrompt = `You are a background GM assistant running silently.
 The game mentioned a new character named "${npcName}".
 Your job is to generate a profile for this character based on the recent chat history.
 If the character is barely mentioned, invent a plausible, tropes-appropriate profile that fits the current scene context.
@@ -46,59 +99,65 @@ The JSON must perfectly match this structure:
   "goals": "String (Core motive)",
   "voice": "String — describe HOW this NPC speaks: sentence length, vocabulary level, verbal quirks, catchphrases, accent notes. Be specific.",
   "personality": "String — core personality traits in plain language. What drives them? How do they treat others? What do they fear?",
-  "exampleOutput": "String — one line of in-character dialogue that demonstrates their voice and personality. Include a brief action in brackets if needed."
+  "exampleOutput": "String — one line of in-character dialogue that demonstrates their voice and personality. Include a brief action in brackets if needed.",
+  "drives": {
+    "coreWant": "String — one sentence: a deep character truth this NPC carries (NOT a goal). Example: 'to be seen as capable, not just loyal'",
+    "sessionWant": "String — one sentence: what this NPC is working toward in the current arc. Example: 'convince the party to take the northern route'",
+    "sceneWant": "String — one sentence: what this NPC wants from the immediate scene. Example: 'get the player to trust her enough to share information'"
+  },
+  "behavioralTriggers": [
+    { "keyword": "String — a word or phrase that, when it appears in player input or narrative, activates this trigger", "shift": "String — a PHYSICAL or VERBAL behavioral shift (NOT an emotion). Good: 'crosses arms, answers in single syllables'. Bad: 'becomes angry'." }
+  ],
+  "hardBoundaries": ["String — something this NPC will never do. Example: 'will not betray her sister'"],
+  "softBoundaries": ["String — something this NPC dislikes but may tolerate under pressure. Example: 'dislikes being excluded from plans'"]
 }`;
 
-        const messages: OpenAIMessage[] = [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `RECENT CHAT HISTORY:\n${recentHistory}\n\nGenerate the JSON profile for "${npcName}".` }
-        ];
+    const messages: OpenAIMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `RECENT CHAT HISTORY:\n${recentHistory}\n\nGenerate the JSON profile for "${npcName}".` }
+    ];
 
-        let fullJsonStr = '';
+    try {
+        const { parsed } = await sendMessageAndParseJson(provider, messages, 'NPC Generator');
 
-        await sendMessage(
-            provider,
-            messages,
-            (chunk) => { fullJsonStr = chunk; },
-            () => { }, // onDone
-            (err) => console.error('[NPC Generator] Error:', err)
-        );
+        const newEntry: NPCEntry = {
+            id: uid(),
+            name: parsed.name || npcName,
+            aliases: parsed.aliases || '',
+            status: parsed.status || 'Alive',
+            faction: parsed.faction || 'Unknown',
+            storyRelevance: parsed.storyRelevance || 'Unknown',
+            appearance: '',
+            visualProfile: parsed.visualProfile || {
+                race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown', artStyle: 'Anime'
+            },
+            disposition: parsed.disposition || 'Neutral',
+            goals: parsed.goals || 'Unknown',
+            voice: parsed.voice || '',
+            personality: parsed.personality || parsed.disposition || 'Unknown',
+            exampleOutput: parsed.exampleOutput || '',
+            affinity: 50,
+            drives: parsed.drives ? {
+                coreWant: parsed.drives.coreWant || '',
+                sessionWant: parsed.drives.sessionWant || '',
+                sceneWant: parsed.drives.sceneWant || '',
+            } : undefined,
+            behavioralTriggers: Array.isArray(parsed.behavioralTriggers)
+                ? parsed.behavioralTriggers.filter((t: Record<string, unknown>) => t.keyword && t.shift).map((t: Record<string, unknown>) => ({ keyword: String(t.keyword), shift: String(t.shift) }))
+                : undefined,
+            hardBoundaries: Array.isArray(parsed.hardBoundaries)
+                ? parsed.hardBoundaries.map(String).filter(Boolean)
+                : undefined,
+            softBoundaries: Array.isArray(parsed.softBoundaries)
+                ? parsed.softBoundaries.map(String).filter(Boolean)
+                : undefined,
+        };
 
-        if (fullJsonStr) {
-            const cleanStr = extractJson(fullJsonStr);
-
-            try {
-                const parsed = JSON.parse(cleanStr);
-
-                const newEntry: NPCEntry = {
-                    id: uid(),
-                    name: parsed.name || npcName,
-                    aliases: parsed.aliases || '',
-                    status: parsed.status || 'Alive',
-                    faction: parsed.faction || 'Unknown',
-                    storyRelevance: parsed.storyRelevance || 'Unknown',
-                    appearance: '',
-                    visualProfile: parsed.visualProfile || {
-                        race: 'Unknown', gender: 'Unknown', ageRange: 'Unknown', build: 'Unknown', symmetry: 'Unknown', hairStyle: 'Unknown', eyeColor: 'Unknown', skinTone: 'Unknown', gait: 'Unknown', distinctMarks: 'None', clothing: 'Unknown', artStyle: 'Anime'
-                    },
-                    disposition: parsed.disposition || 'Neutral',
-                    goals: parsed.goals || 'Unknown',
-                    voice: parsed.voice || '',
-                    personality: parsed.personality || parsed.disposition || 'Unknown',
-                    exampleOutput: parsed.exampleOutput || '',
-                    affinity: 50,
-                };
-
-                addNPCToStore(newEntry);
-                console.log(`[NPC Generator] Successfully generated and added profile for: ${newEntry.name}`);
-
-            } catch (parseErr) {
-                console.error('[NPC Generator] Failed to parse generated JSON:', parseErr, '\nRaw String:', cleanStr);
-            }
-        }
+        addNPCToStore(newEntry);
+        console.log(`[NPC Generator] Successfully generated and added profile for: ${newEntry.name}`);
 
     } catch (err) {
-        console.error('[NPC Generator] Fatal error during generation:', err);
+        console.error('[NPC Generator] Failed to generate NPC profile:', err);
     }
 }
 
@@ -135,6 +194,18 @@ export async function updateExistingNPCs(
             `Faction: ${npc.faction || 'Unknown'}\n` +
             `Story Relevance: ${npc.storyRelevance || 'Unknown'}\n`;
 
+        if (npc.drives) {
+            data += `CoreWant: ${npc.drives.coreWant || 'Unknown'}\n` +
+                `SessionWant: ${npc.drives.sessionWant || 'Unknown'}\n` +
+                `SceneWant: ${npc.drives.sceneWant || 'Unknown'}\n`;
+        } else {
+            data += `Drives: NOT YET POPULATED\n`;
+        }
+
+        if (npc.behavioralTriggers && npc.behavioralTriggers.length > 0) {
+            data += `Triggers: ${npc.behavioralTriggers.map(t => `"${t.keyword}" → ${t.shift}`).join('; ')}\n`;
+        }
+
         if (missingFields.length > 0) {
             data += `NOTE: This NPC has missing or generic "visualProfile" fields: ${missingFields.join(', ')}. You MUST attempt to determine specific values for these based on their "Appearance" and recent context.\n`;
         }
@@ -154,13 +225,27 @@ ${npcDatas}
 If NO changes occurred for ANY of these NPCs, respond EXACTLY with:
 {"updates": []}
 
-If ANY changes occurred, respond with a JSON object containing an "updates" array. Each update must include the basic "name" and ANY attributes that have fundamentally changed (status, disposition, goals, personality, voice, affinity, faction, storyRelevance, visualProfile). DO NOT include attributes that stayed the same.
+If ANY changes occurred, respond with a JSON object containing an "updates" array. Each update must include the basic "name" and ANY attributes that have fundamentally changed (status, disposition, goals, personality, voice, affinity, faction, storyRelevance, visualProfile, drives). DO NOT include attributes that stayed the same.
 Valid statuses: Alive, Deceased, Missing, Unknown.
 Note: "affinity" is a 0-100 scale of how much they like the player (0=Nemesis, 50=Neutral, 100=Ally). Update this if the player did something to gain or lose favor.
 Do NOT change personality or voice unless the scene contains a genuinely transformative event for this character.
 
+DRIVES UPDATE RULES:
+- "drives" is an object with "coreWant", "sessionWant", and "sceneWant".
+- "coreWant" is a deep character truth — almost never changes. Only update if a transformative event reshapes who this NPC is.
+- "sessionWant" is their arc-level objective — update if the story has clearly moved to a new arc or their long-term situation shifted.
+- "sceneWant" is their immediate scene-level goal — this changes OFTEN. Update whenever the scene context, NPC's situation, or conversation direction has shifted. Always include a new sceneWant if the old one is clearly resolved or irrelevant.
+- If the NPC has "Drives: NOT YET POPULATED", you MUST provide ALL THREE drive fields (coreWant, sessionWant, sceneWant) plus at least one behavioralTrigger, one hardBoundary, and one softBoundary.
+- Only include the "drives" field if at least one sub-field changed or needs to be populated.
+
 Example of an NPC dying and getting angry:
 {"updates": [{"name": "Captain Vorin", "changes": {"status": "Deceased", "personality": "consumed by rage in final moments, betrayed and broken", "storyRelevance": "His death sparked a rebellion"}}]}
+
+Example of an NPC whose scene context shifted:
+{"updates": [{"name": "Senna", "changes": {"drives": {"sceneWant": "convince the party to camp here tonight — she spotted tracks earlier and wants to investigate at dawn"}}}]}
+
+Example of a legacy NPC getting drives for the first time:
+{"updates": [{"name": "Aldric", "changes": {"drives": {"coreWant": "to prove his family's honor is worth more than their fallen name", "sessionWant": "secure an alliance with the player's group", "sceneWant": "get the player to agree to meet his lord"}, "behavioralTriggers": [{"keyword": "coward", "shift": "jaw tightens, speaks through clenched teeth, changes subject to his military record"}], "hardBoundaries": ["will not abandon a wounded ally"], "softBoundaries": ["resents being reminded of his family's disgrace"]}}]}
 
 RESPOND ONLY WITH VALID JSON.`;
 
@@ -170,67 +255,143 @@ RESPOND ONLY WITH VALID JSON.`;
     }];
 
     try {
-        let fullJsonStr = '';
-        await sendMessage(
-            provider,
-            messages,
-            (chunk) => { fullJsonStr = chunk; },
-            () => { }, // onDone
-            (err) => console.error('[NPC Updater] Error:', err)
-        );
+        const { parsed } = await sendMessageAndParseJson(provider, messages, 'NPC Updater');
 
-        if (fullJsonStr) {
-            const cleanStr = extractJson(fullJsonStr);
-            const parsed = JSON.parse(cleanStr);
+        if (parsed.updates && Array.isArray(parsed.updates)) {
+            for (const update of parsed.updates) {
+                if (!update.name || !update.changes) continue;
 
-            if (parsed.updates && Array.isArray(parsed.updates)) {
-                for (const update of parsed.updates) {
-                    if (!update.name || !update.changes) continue;
+                const targetNpc = npcsToCheck.find(n =>
+                    n.name.toLowerCase() === update.name.toLowerCase() ||
+                    (n.aliases && n.aliases.toLowerCase().includes(update.name.toLowerCase()))
+                );
 
-                    // Find matching NPC (case-insensitive)
-                    const targetNpc = npcsToCheck.find(n =>
-                        n.name.toLowerCase() === update.name.toLowerCase() ||
-                        (n.aliases && n.aliases.toLowerCase().includes(update.name.toLowerCase()))
-                    );
+                if (targetNpc) {
+                    const changes = { ...update.changes };
 
-                    if (targetNpc) {
-                        // If AI provided visualProfile, ensure we get all fields, keeping defaults for missing ones
-                        const changes = { ...update.changes };
+                    const hasPersonalityChange = changes.personality !== undefined || changes.voice !== undefined;
+                    const hasAffinityChange = changes.affinity !== undefined;
 
-                        const hasPersonalityChange = changes.personality !== undefined || changes.voice !== undefined;
-                        const hasAffinityChange = changes.affinity !== undefined;
-
-                        if (hasPersonalityChange || hasAffinityChange) {
-                            changes.previousSnapshot = {
-                                personality: targetNpc.personality || targetNpc.disposition || '',
-                                voice: targetNpc.voice || '',
-                                affinity: targetNpc.affinity,
-                            };
-                            changes.shiftTurnCount = 0;
-                        } else if (targetNpc.shiftTurnCount !== undefined && targetNpc.shiftTurnCount < 3) {
-                            changes.shiftTurnCount = (targetNpc.shiftTurnCount || 0) + 1;
-                        }
-
-                        if (changes.visualProfile && typeof changes.visualProfile === 'object') {
-                            changes.visualProfile = {
-                                ...targetNpc.visualProfile, // fallback to existing (even if unknown)
-                                ...changes.visualProfile,
-                                // Enforce artStyle persistence if they had one or set default
-                                artStyle: targetNpc.visualProfile?.artStyle || 'Anime'
-                            };
-                        }
-
-                        // Apply updates
-                        updateNPCStore(targetNpc.id, changes);
-                        console.log(`[NPC Updater] Applied changes to ${targetNpc.name}:`, changes);
+                    if (hasPersonalityChange || hasAffinityChange) {
+                        changes.previousSnapshot = {
+                            personality: targetNpc.personality || targetNpc.disposition || '',
+                            voice: targetNpc.voice || '',
+                            affinity: targetNpc.affinity,
+                        };
+                        changes.shiftTurnCount = 0;
+                    } else if (targetNpc.shiftTurnCount !== undefined && targetNpc.shiftTurnCount < 3) {
+                        changes.shiftTurnCount = (targetNpc.shiftTurnCount || 0) + 1;
                     }
+
+                    if (changes.visualProfile && typeof changes.visualProfile === 'object') {
+                        changes.visualProfile = {
+                            ...targetNpc.visualProfile,
+                            ...changes.visualProfile,
+                            artStyle: targetNpc.visualProfile?.artStyle || 'Anime'
+                        };
+                    }
+
+                    if (changes.drives && typeof changes.drives === 'object') {
+                        const existingDrives = targetNpc.drives || { coreWant: '', sessionWant: '', sceneWant: '' };
+                        changes.drives = {
+                            coreWant: changes.drives.coreWant || existingDrives.coreWant,
+                            sessionWant: changes.drives.sessionWant || existingDrives.sessionWant,
+                            sceneWant: changes.drives.sceneWant || existingDrives.sceneWant,
+                        };
+                    }
+
+                    if (Array.isArray(changes.behavioralTriggers)) {
+                        changes.behavioralTriggers = changes.behavioralTriggers
+                            .filter((t: Record<string, unknown>) => t.keyword && t.shift)
+                            .map((t: Record<string, unknown>) => ({ keyword: String(t.keyword), shift: String(t.shift) }));
+                    }
+
+                    if (Array.isArray(changes.hardBoundaries)) {
+                        changes.hardBoundaries = changes.hardBoundaries.map(String).filter(Boolean);
+                    }
+
+                    if (Array.isArray(changes.softBoundaries)) {
+                        changes.softBoundaries = changes.softBoundaries.map(String).filter(Boolean);
+                    }
+
+                    updateNPCStore(targetNpc.id, changes);
+                    console.log(`[NPC Updater] Applied changes to ${targetNpc.name}:`, changes);
                 }
-            } else {
-                console.log(`[NPC Updater] No updates required.`);
             }
+        } else {
+            console.log(`[NPC Updater] No updates required.`);
         }
     } catch (err) {
         console.error('[NPC Updater] Failed to parse generated JSON or fatal error:', err);
+    }
+}
+
+export async function backfillNPCDrives(
+    provider: EndpointConfig | ProviderConfig,
+    history: ChatMessage[],
+    npcsNeedingDrives: NPCEntry[],
+    updateNPCStore: (id: string, updates: Partial<NPCEntry>) => void
+): Promise<void> {
+    if (!npcsNeedingDrives.length) return;
+
+    console.log(`[NPC Drives Backfill] Populating drives for ${npcsNeedingDrives.length} legacy NPC(s)...`);
+
+    const recentContext = history.slice(-10).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+
+    for (const npc of npcsNeedingDrives) {
+        const npcSummary = `Name: ${npc.name}\nPersonality: ${npc.personality || npc.disposition || 'Unknown'}\nVoice: ${npc.voice || 'Unknown'}\nGoals: ${npc.goals || 'Unknown'}\nFaction: ${npc.faction || 'Unknown'}\nAffinity: ${npc.affinity ?? 50}/100\nStory Relevance: ${npc.storyRelevance || 'Unknown'}`;
+
+        const prompt = `You are a background GM assistant. An existing NPC in a TTRPG campaign needs their drives, behavioral triggers, and boundaries populated. Based on their profile and recent game context, generate these fields.
+
+[NPC PROFILE]
+${npcSummary}
+[END PROFILE]
+
+[RECENT GAME CONTEXT]
+${recentContext}
+[END CONTEXT]
+
+RESPOND ONLY WITH VALID JSON. NO MARKDOWN FORMATTING. NO EXPLANATIONS.
+{
+  "coreWant": "String — one sentence: a deep character truth this NPC carries (NOT a goal). Example: 'to be seen as capable, not just loyal'",
+  "sessionWant": "String — one sentence: what this NPC is working toward in the current arc based on context. If unclear, invent a plausible arc goal.",
+  "sceneWant": "String — one sentence: what this NPC wants from the most recent scene. Base this on the recent context if possible.",
+  "behavioralTriggers": [
+    { "keyword": "String — a word/phrase that activates this trigger based on their personality", "shift": "String — PHYSICAL/VERBAL behavioral shift (NOT emotion). Good: 'crosses arms, single-syllable answers'. Bad: 'becomes angry'." }
+  ],
+  "hardBoundaries": ["String — something this NPC will never do"],
+  "softBoundaries": ["String — something this NPC dislikes but may tolerate"]
+}`;
+
+        const messages: OpenAIMessage[] = [
+            { role: 'user', content: prompt }
+        ];
+
+        try {
+            const { parsed } = await sendMessageAndParseJson(provider, messages, `NPC Drives Backfill/${npc.name}`);
+
+            const patch: Partial<NPCEntry> = {
+                drives: {
+                    coreWant: parsed.coreWant || `${npc.name} wants to prove their worth`,
+                    sessionWant: parsed.sessionWant || `${npc.name} is looking for opportunity`,
+                    sceneWant: parsed.sceneWant || `${npc.name} is observing the situation`,
+                },
+                behavioralTriggers: Array.isArray(parsed.behavioralTriggers)
+                    ? parsed.behavioralTriggers.filter((t: Record<string, unknown>) => t.keyword && t.shift).map((t: Record<string, unknown>) => ({ keyword: String(t.keyword), shift: String(t.shift) }))
+                    : [],
+                hardBoundaries: Array.isArray(parsed.hardBoundaries)
+                    ? parsed.hardBoundaries.map(String).filter(Boolean)
+                    : [],
+                softBoundaries: Array.isArray(parsed.softBoundaries)
+                    ? parsed.softBoundaries.map(String).filter(Boolean)
+                    : [],
+            };
+
+            updateNPCStore(npc.id, patch);
+            console.log(`[NPC Drives Backfill] Populated drives for ${npc.name}:`, patch.drives);
+        } catch (err) {
+            console.error(`[NPC Drives Backfill] Failed for ${npc.name}:`, err);
+        }
     }
 }
 

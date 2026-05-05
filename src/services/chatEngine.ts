@@ -4,5 +4,5 @@
 export { extractJson, buildPayload } from './payloadBuilder';
 export { sendMessage, testConnection } from './llmService';
 export type { OpenAIMessage } from './llmService';
-export { generateNPCProfile, updateExistingNPCs, generateNPCPortrait } from './npcGeneration';
+export { generateNPCProfile, updateExistingNPCs, generateNPCPortrait, backfillNPCDrives } from './npcGeneration';
 export { populateEngineTags } from './tagGeneration';

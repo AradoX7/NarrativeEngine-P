@@ -7,7 +7,8 @@ import { rateImportance } from './importanceRater';
 import { generateChapterSummary } from './saveFileEngine';
 import { backgroundQueue } from './backgroundQueue';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from './npcDetector';
-import { generateNPCProfile, updateExistingNPCs } from './chatEngine';
+import { generateNPCProfile, updateExistingNPCs, backfillNPCDrives } from './chatEngine';
+import { scanPressure, buildPressurePatch } from './npcPressureTracker';
 import { scanCharacterProfile } from './characterProfileParser';
 import { scanInventory } from './inventoryParser';
 import { toast } from '../components/Toast';
@@ -26,6 +27,7 @@ export async function runPostTurnPipeline(
         runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId),
         runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
         runDivergenceTrack(state, callbacks, displayInput, lastAssistantContent, activeCampaignId),
+        runPressureTrack(state, callbacks, displayInput, npcLedger, activeCampaignId),
     ]);
 
     for (const r of results) {
@@ -202,6 +204,17 @@ async function runNPCTrack(
                 () => updateExistingNPCs(updateProvider, allMsgs, existingNpcsToUpdate, guardedUpdateNPC)
             ).catch(err => console.warn('[NPC Update] Background update failed:', err));
         }
+
+        const npcsNeedingDrives = existingNpcsToUpdate.filter(n => !n.drives);
+        if (npcsNeedingDrives.length > 0) {
+            const backfillProvider = state.getFreshProvider();
+            if (backfillProvider) {
+                backgroundQueue.push(
+                    `NPC-Drives-Backfill:${npcsNeedingDrives.map(n => n.name).join(',')}`,
+                    () => backfillNPCDrives(backfillProvider, allMsgs, npcsNeedingDrives, guardedUpdateNPC)
+                ).catch(err => console.warn('[NPC Drives Backfill] Background backfill failed:', err));
+            }
+        }
     }
 }
 
@@ -241,5 +254,50 @@ async function runDivergenceTrack(
         } catch {}
 
         console.log(`[DivergenceRegister] Scene #${sceneId}: ${entries.length} entries extracted`);
+    }
+}
+
+async function runPressureTrack(
+    state: TurnState,
+    callbacks: TurnCallbacks,
+    displayInput: string,
+    npcLedger: import('../types').NPCEntry[],
+    activeCampaignId: string
+): Promise<void> {
+    if (!npcLedger || npcLedger.length === 0) return;
+
+    const archiveIndex = state.archiveIndex;
+    const sceneNumber = archiveIndex.length > 0
+        ? parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0
+        : 0;
+
+    const loreHeadersSet = new Set<string>();
+    const activeNPCs = npcLedger.filter(npc => {
+        if (!npc.name) return false;
+        if (loreHeadersSet.has(npc.name.toLowerCase())) return false;
+        return true;
+    });
+
+    if (activeNPCs.length === 0) return;
+
+    const updates = scanPressure(displayInput, activeNPCs);
+    if (updates.length === 0) return;
+
+    const guardedUpdateNPC = (id: string, patch: Parameters<typeof callbacks.updateNPC>[1]) => {
+        const currentId = useAppStore.getState().activeCampaignId;
+        if (currentId !== activeCampaignId) return;
+        callbacks.updateNPC(id, patch);
+    };
+
+    for (const update of updates) {
+        const npc = npcLedger.find(n => n.id === update.npcId);
+        if (!npc) continue;
+
+        const patch = buildPressurePatch(npc, update, sceneNumber);
+        guardedUpdateNPC(npc.id, patch);
+
+        if (update.reasons.length > 0) {
+            console.log(`[PressureTracker] ${npc.name}: ignored=${patch.pressure?.ignored?.toFixed(1)}, engaged=${patch.pressure?.engaged?.toFixed(1)} — ${update.reasons.join(', ')}`);
+        }
     }
 }

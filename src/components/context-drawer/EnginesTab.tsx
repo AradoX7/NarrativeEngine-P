@@ -3,6 +3,7 @@ import { Loader2, Sparkles } from 'lucide-react';
 import { useAppStore, DEFAULT_SURPRISE_TYPES, DEFAULT_SURPRISE_TONES, DEFAULT_ENCOUNTER_TYPES, DEFAULT_ENCOUNTER_TONES, DEFAULT_WORLD_WHO, DEFAULT_WORLD_WHERE, DEFAULT_WORLD_WHY, DEFAULT_WORLD_WHAT } from '../../store/useAppStore';
 import { populateEngineTags } from '../../services/chatEngine';
 import { Toggle } from './Toggle';
+import { NPCPressureInspector } from '../NPCPressureInspector';
 
 export function EnginesTab() {
     const context = useAppStore((s) => s.context);
@@ -43,7 +44,7 @@ export function EnginesTab() {
                             <div className="w-1.5 h-1.5 rounded-full bg-terminal" />
                             Surprise Engine
                         </div>
-                        <Toggle active={context.surpriseEngineActive ?? true} onChange={() => updateContext({ surpriseEngineActive: !(context.surpriseEngineActive ?? true) })} />
+                        <Toggle active={context.surpriseEngineActive ?? false} onChange={() => updateContext({ surpriseEngineActive: !(context.surpriseEngineActive ?? false) })} />
                     </div>
                     <div className="bg-void border border-border p-3 space-y-3">
                         <div className="grid grid-cols-2 gap-2">
@@ -342,6 +343,8 @@ export function EnginesTab() {
                 </div>
 
             </div>
+
+            <NPCPressureInspector />
         </div>
     );
 }

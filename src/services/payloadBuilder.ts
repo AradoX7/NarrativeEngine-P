@@ -7,22 +7,101 @@ import { resolveTimeline, formatResolvedForContext } from './timelineResolver';
 import { DEFAULT_RULES } from './defaultRules';
 import { renderRegisterForPayload } from './divergenceRegister';
 
+function computeNPCSalience(npc: NPCEntry, scanText: string): number {
+    let score = 0;
+    const lower = scanText.toLowerCase();
+    const name = npc.name.toLowerCase();
+    const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
+    const patterns = [name, ...aliases];
+
+    for (const p of patterns) {
+        const regex = new RegExp(p, 'gi');
+        const matches = lower.match(regex);
+        if (matches) score += matches.length * 2;
+    }
+
+    if (npc.drives?.sceneWant) score += 1;
+    if (npc.pressure?.engaged) score += npc.pressure.engaged * 1.5;
+    if (npc.pressure?.ignored) score += npc.pressure.ignored * 2;
+
+    if (npc.behavioralTriggers) {
+        for (const trigger of npc.behavioralTriggers) {
+            if (lower.includes(trigger.keyword.toLowerCase())) score += 4;
+        }
+    }
+
+    return score;
+}
+
 
 /**
  * Robustly extracts the first JSON object or array found in a text string.
  * Handles <think> tags, markdown code blocks, and leading/trailing chatter.
  */
+function repairJson(str: string): string {
+    let r = str;
+
+    r = r.replace(/,\s*([}\]])/g, '$1');
+
+    r = r.replace(/\/\/[^\n]*/g, '');
+
+    r = r.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    r = r.replace(
+        /"([^"\\]*(\\.[^"\\]*)*)"\s*:/g,
+        (match) => match
+    );
+
+    r = r.replace(/:\s*'"([^']*)'([,}\]])/g, ': "$1"$2');
+    r = r.replace(/:\s*'([^']*)'([,}\]])/g, ': "$1"$2');
+    r = r.replace(/\[\s*'/g, '["');
+    r = r.replace(/'\s*,\s*'/g, '", "');
+    r = r.replace(/'\s*]/g, '"]');
+    r = r.replace(/"\s*:\s*'([^']*(?:\\.[^']*)*)'\s*([,}\]])/g, '"$1"$2');
+
+    let inString = false;
+    let escaped = false;
+    let result = '';
+    for (let i = 0; i < r.length; i++) {
+        const ch = r[i];
+        if (escaped) {
+            result += ch;
+            escaped = false;
+            continue;
+        }
+        if (ch === '\\' && inString) {
+            result += ch;
+            escaped = true;
+            continue;
+        }
+        if (ch === '"') {
+            inString = !inString;
+            result += ch;
+            continue;
+        }
+        if (inString) {
+            if (ch === '\n') { result += '\\n'; continue; }
+            if (ch === '\r') { result += '\\r'; continue; }
+            if (ch === '\t') { result += '\\t'; continue; }
+            if (ch === '\x00') { continue; }
+        }
+        result += ch;
+    }
+    r = result;
+
+    r = r.replace(/\}\s*\{/g, '},{');
+
+    return r.trim();
+}
+
 export function extractJson(text: string): string {
-    // 1. Remove reasoning blocks if present
     let clean = text.replace(/<think[\s\S]*?<\/think\s*>/gi, '');
 
-    // 2. Try to find content between triple backticks first
     const markdownMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (markdownMatch) {
         clean = markdownMatch[1];
     }
 
-    // 3. Final fallback: find the first { or [ and the last } or ]
     const firstObj = clean.indexOf('{');
     const firstArr = clean.indexOf('[');
     const start = (firstObj !== -1 && (firstArr === -1 || firstObj < firstArr)) ? firstObj : firstArr;
@@ -33,11 +112,11 @@ export function extractJson(text: string): string {
         const end = (lastObj !== -1 && (lastArr === -1 || lastObj > lastArr)) ? lastObj : lastArr;
 
         if (end !== -1 && end > start) {
-            return clean.substring(start, end + 1).trim();
+            return repairJson(clean.substring(start, end + 1).trim());
         }
     }
 
-    return clean.trim();
+    return repairJson(clean.trim());
 }
 
 
@@ -227,10 +306,37 @@ export function buildPayload(
         }
 
         if (activeNPCs.length > 0) {
-            const npcText = `[ACTIVE NPC CONTEXT]\n${activeNPCs.map(npc => {
+            const scanText = history.slice(-10).map(m => m.content || '').join(' ') + ' ' + userMessage;
+            const scored = activeNPCs.map(npc => ({ npc, score: computeNPCSalience(npc, scanText) }));
+            scored.sort((a, b) => b.score - a.score);
+            const spotlitNpc = scored[0].npc;
+
+            const npcLines = activeNPCs.map(npc => {
+                const isSpotlit = npc.id === spotlitNpc.id;
                 let line = minifyNPC(npc);
                 const directive = buildBehaviorDirective(npc);
                 if (directive) line += ` | ${directive}`;
+
+                if (isSpotlit && npc.drives) {
+                    const driveParts: string[] = [];
+                    if (npc.drives.coreWant) driveParts.push(`CoreWant: ${npc.drives.coreWant}`);
+                    if (npc.drives.sessionWant) driveParts.push(`SessionWant: ${npc.drives.sessionWant}`);
+                    if (npc.drives.sceneWant) driveParts.push(`SceneWant: ${npc.drives.sceneWant}`);
+                    if (driveParts.length) line += `\n  DRIVES: ${driveParts.join(' | ')}`;
+                }
+
+                if (isSpotlit && npc.behavioralTriggers && npc.behavioralTriggers.length > 0) {
+                    const triggerTexts = npc.behavioralTriggers.map(t => `if "${t.keyword}" → ${t.shift}`);
+                    line += `\n  TRIGGERS: ${triggerTexts.join('; ')}`;
+                }
+
+                if (isSpotlit && npc.hardBoundaries && npc.hardBoundaries.length > 0) {
+                    line += `\n  HARD LIMITS: ${npc.hardBoundaries.join('; ')}`;
+                }
+                if (isSpotlit && npc.softBoundaries && npc.softBoundaries.length > 0) {
+                    line += `\n  SOFT LIMITS: ${npc.softBoundaries.join('; ')}`;
+                }
+
                 const drift = buildDriftAlert(npc);
                 if (drift) line += ` | ${drift}`;
                 if (archiveIndex) {
@@ -238,8 +344,10 @@ export function buildPayload(
                     if (boundary) line += `\n  ${boundary}`;
                 }
                 return line;
-            }).join('\n')}\n[END NPC CONTEXT]`;
-            worldBlocks.push({ source: 'Active NPCs', content: npcText, tokens: countTokens(npcText), reason: `NPCs detected in context (${activeNPCs.length}, minified)` });
+            });
+
+            const npcText = `[ACTIVE NPC CONTEXT]\n${npcLines.join('\n')}\n[END NPC CONTEXT]`;
+            worldBlocks.push({ source: 'Active NPCs', content: npcText, tokens: countTokens(npcText), reason: `NPCs detected in context (${activeNPCs.length}, spotlit: ${spotlitNpc.name})` });
         }
     }
 
@@ -374,13 +482,17 @@ ${profBlock}`);
     while (fitted.length > 0 && fitted[0].role === 'tool') fitted.shift();
 
     addTrace({ source: 'Fitted History', classification: 'summary', tokens: historyUsed, reason: `Included ${fitted.length} msgs within ${historyBudget} budget`, included: true, position: 'history' });
-    fitted.forEach(m => {
-        addSection({
-            label: m.role === 'tool' && m.name ? `Tool: ${m.name}` : m.role,
-            role: m.role,
-            content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
-            classification: 'summary'
-        });
+    const historyLines = fitted.map(m => {
+        const tag = m.role === 'tool' && m.name ? `[TOOL: ${m.name}]` : `[${m.role.toUpperCase()}]`;
+        const body = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+        return `${tag}\n${body}`;
+    }).join('\n\n---\n\n');
+    addSection({
+        label: `Fitted History (${fitted.length} msgs)`,
+        role: 'mixed',
+        tokens: historyUsed,
+        content: historyLines,
+        classification: 'summary',
     });
     addTrace({ source: 'User Message', classification: 'volatile_state', tokens: userTokens, reason: 'Current turn', included: true, position: 'user' });
     addSection({ label: 'User Message', role: 'user', tokens: userTokens, content: userMessage, classification: 'volatile_state' });
@@ -413,6 +525,7 @@ ${profBlock}`);
         messages.push({ role: 'system', content: [worldContent, volatileContent].filter(Boolean).join('\n\n') });
     }
     messages.push(...fitted);
+    messages.push({ role: 'system', content: '[GM REMINDER: NPCs push back when their wants/boundaries are crossed. Do not default to facilitation.]' });
     messages.push({ role: 'user', content: userMessage });
 
     return { messages, trace: isDebug ? trace : undefined, debugSections: isDebug ? debugSections : undefined };
