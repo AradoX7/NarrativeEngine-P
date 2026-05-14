@@ -416,6 +416,8 @@ export type NPCEntry = {
     softBoundaries?: string[];
     pressure?: NPCPressure;
     archived?: boolean;
+    archivedAtTurn?: number;
+    archivedReason?: string;
 };
 
 

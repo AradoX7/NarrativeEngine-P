@@ -14,7 +14,7 @@ import { NPCGalleryView } from './npc-ledger/NPCGalleryView';
 import { NPCEditForm } from './npc-ledger/NPCEditForm';
 
 export function NPCLedgerModal() {
-    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs } = useAppStore();
+    const { npcLedger, npcLedgerOpen, toggleNPCLedger, addNPC, updateNPC, removeNPC, setNPCLedger, addNPCs, restoreNPC, archiveNPC } = useAppStore();
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [viewMode, setViewMode] = useState<'list' | 'gallery'>('list');
@@ -344,8 +344,8 @@ export function NPCLedgerModal() {
                         </div>
                     )}
                     {viewMode === 'list'
-                        ? <NPCListView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
-                        : <NPCGalleryView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} />
+                        ? <NPCListView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} onRestore={(id) => restoreNPC(id)} />
+                        : <NPCGalleryView npcLedger={displayedNPCs} selectedId={selectedId} selectMode={selectMode} checkedIds={checkedIds} onSelect={handleSelect} onToggleCheck={toggleCheck} onDelete={handleDelete} onRestore={(id) => restoreNPC(id)} />
                     }
                 </div>
 

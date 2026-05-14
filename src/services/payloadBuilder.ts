@@ -1,4 +1,4 @@
-import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister } from '../types';
+import type { AppSettings, ChatMessage, GameContext, LoreChunk, NPCEntry, ArchiveScene, ArchiveIndexEntry, PayloadTrace, TimelineEvent, DebugSection, InventoryItemCategory, DivergenceRegister, ArchiveChapter } from '../types';
 import type { OpenAIMessage } from './llmService';
 import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert, buildKnowledgeBoundary } from './npcBehaviorDirective';
@@ -170,7 +170,8 @@ export function buildPayload(
     inventoryCategories?: (InventoryItemCategory | 'equipped')[],
     profileFields?: string[],
     deepContextSummary?: string,
-    divergenceRegister?: DivergenceRegister
+    divergenceRegister?: DivergenceRegister,
+    chapters?: ArchiveChapter[]
 ): { messages: OpenAIMessage[]; trace?: PayloadTrace[]; debugSections?: DebugSection[] } {
     const trace: PayloadTrace[] = [];
     const debugSections: DebugSection[] = [];
@@ -322,6 +323,7 @@ export function buildPayload(
             // Use the pre-computed list from contextRecommender.ts
             const recommendedSet = new Set(recommendedNPCNames.map(n => n.toLowerCase()));
             activeNPCs = npcLedger.filter(npc => {
+                if (npc.archived) return false;
                 if (!npc.name || loreHeadersSet.has(npc.name.toLowerCase())) return false;
                 const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
                 const allNames = [npc.name.toLowerCase(), ...aliases];
@@ -332,6 +334,7 @@ export function buildPayload(
             // ── Legacy substring scan mode ──
             const scanHistory = history.slice(-10).map(m => m.content || '').join(' ') + ' ' + userMessage;
             activeNPCs = npcLedger.filter(npc => {
+                if (npc.archived) return false;
                 if (!npc.name || loreHeadersSet.has(npc.name.toLowerCase())) return false;
                 const aliases = (npc.aliases || '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
                 const patterns = [npc.name.toLowerCase(), ...aliases];
@@ -387,9 +390,9 @@ export function buildPayload(
 
     // Divergence Register
     if (divergenceRegister && divergenceRegister.entries.length > 0) {
-        const regText = renderRegisterForPayload(divergenceRegister);
+        const regText = renderRegisterForPayload(divergenceRegister, chapters);
         if (regText) {
-            worldBlocks.push({ source: 'Divergence Register', content: regText, tokens: countTokens(regText), reason: `Campaign facts (${divergenceRegister.entries.length} entries)` });
+            worldBlocks.push({ source: 'Established Facts', content: regText, tokens: countTokens(regText), reason: `Campaign facts (${divergenceRegister.entries.length} entries)` });
         }
     }
 

@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import { api } from './apiClient';
 import { CHAPTER_SCENE_SOFT_CAP } from '../types';
 import { rateImportance } from './importanceRater';
-import { generateChapterSummary } from './saveFileEngine';
+import { sealChapterCombined } from './saveFileEngine';
 import { backgroundQueue } from './backgroundQueue';
 import { extractNPCNames, classifyNPCNames, validateNPCCandidates } from './npcDetector';
 import { generateNPCProfile, updateExistingNPCs, backfillNPCDrives } from './chatEngine';
@@ -12,7 +12,7 @@ import { scanPressure, buildPressurePatch } from './npcPressureTracker';
 import { scanCharacterProfile } from './characterProfileParser';
 import { scanInventory } from './inventoryParser';
 import { toast } from '../components/Toast';
-import { extractDivergences, mergeEntries, pruneChapterEntries, EMPTY_REGISTER } from './divergenceRegister';
+import { mergeSealEntries, EMPTY_REGISTER } from './divergenceRegister';
 import { saveDivergenceRegister } from '../store/campaignStore';
 
 export async function runPostTurnPipeline(
@@ -27,7 +27,6 @@ export async function runPostTurnPipeline(
     const results = await Promise.allSettled([
         runArchiveTrack(state, callbacks, displayInput, lastAssistantContent, allMsgs, activeCampaignId),
         runNPCTrack(state, callbacks, lastAssistantContent, allMsgs, npcLedger, activeCampaignId),
-        runDivergenceTrack(state, callbacks, displayInput, lastAssistantContent, activeCampaignId),
         runPressureTrack(state, callbacks, displayInput, npcLedger, activeCampaignId),
     ]);
 
@@ -86,33 +85,14 @@ async function runArchiveTrack(
 
             const sealProvider = state.getFreshProvider();
             if (sealProvider) {
-                const ch = sealResult.sealedChapter;
-                const startNum = parseInt(ch.sceneRange[0], 10);
-                const endNum = parseInt(ch.sceneRange[1], 10);
-                const sIds = Array.from({ length: endNum - startNum + 1 }, (_, i) =>
-                    String(startNum + i).padStart(3, '0')
+                await runCombinedSeal(
+                    sealProvider,
+                    sealResult.sealedChapter,
+                    activeCampaignId,
+                    state,
+                    callbacks,
+                    true
                 );
-                const chScenes = await api.archive.fetchScenes(activeCampaignId, sIds);
-                const freshCtx = state.getFreshContext();
-                const summaryPatch = await generateChapterSummary(sealProvider, ch, chScenes, freshCtx.headerIndex);
-                if (summaryPatch) {
-                    await api.chapters.update(activeCampaignId, ch.chapterId, { ...summaryPatch, invalidated: false });
-                    const latestChapters = await api.chapters.list(activeCampaignId);
-                    state.setChapters(latestChapters);
-                    console.log(`[Auto-Seal] Summary generated for "${ch.title}"`);
-                }
-
-                const liveRegister = useAppStore.getState().divergenceRegister;
-                if (liveRegister && liveRegister.entries.length > 0) {
-                    const allChaptersNow = await api.chapters.list(activeCampaignId);
-                    const sealedWithSummary = allChaptersNow.find(c => c.chapterId === sealResult.sealedChapter.chapterId);
-                    const chapterForPrune = sealedWithSummary && (sealedWithSummary.summary || sealedWithSummary.unresolvedThreads?.length)
-                        ? sealedWithSummary
-                        : sealResult.sealedChapter;
-                    const pruned = await pruneChapterEntries(sealProvider, chapterForPrune, liveRegister, allChaptersNow);
-                    callbacks.setDivergenceRegister?.(pruned);
-                    await saveDivergenceRegister(activeCampaignId, pruned);
-                }
             }
         }).catch(err => console.warn('[Auto-Seal] Failed:', err));
     }
@@ -132,7 +112,7 @@ async function runArchiveTrack(
             backgroundQueue.push('Profile-Scan', async () => {
                 const newProfile = await scanCharacterProfile(bkProvider, state.getMessages(), profileData);
                 callbacks.updateContext({
-                    characterProfile: JSON.stringify(newProfile), // legacy sync
+                    characterProfile: JSON.stringify(newProfile),
                     characterProfileData: newProfile,
                     characterProfileLastScene: sceneId,
                 });
@@ -146,7 +126,7 @@ async function runArchiveTrack(
             backgroundQueue.push('Inventory-Scan', async () => {
                 const newItems = await scanInventory(bkProvider, state.getMessages(), inventoryItems);
                 callbacks.updateContext({
-                    inventory: newItems.map(it => `- ${it.qty > 1 ? `${it.qty}x ` : ''}${it.name}`).join('\n'), // legacy sync
+                    inventory: newItems.map(it => `- ${it.qty > 1 ? `${it.qty}x ` : ''}${it.name}`).join('\n'),
                     inventoryItems: newItems,
                     inventoryLastScene: sceneId,
                 });
@@ -157,6 +137,86 @@ async function runArchiveTrack(
                 console.log(`[Auto Bookkeeping] Inventory updated at scene #${sceneId}`);
             }).catch(err => console.warn('[Auto Bookkeeping] Inventory scan failed:', err));
         }
+    }
+}
+
+export async function runCombinedSeal(
+    provider: { endpoint: string; apiKey: string; modelName: string; apiFormat?: string },
+    chapter: import('../types').ArchiveChapter,
+    activeCampaignId: string,
+    state: TurnState,
+    callbacks: TurnCallbacks,
+    setSealedAt: boolean
+): Promise<void> {
+    const startNum = parseInt(chapter.sceneRange[0], 10);
+    const endNum = parseInt(chapter.sceneRange[1], 10);
+    const sceneIds = chapter.sceneIds?.length > 0
+        ? chapter.sceneIds
+        : Array.from({ length: endNum - startNum + 1 }, (_, i) =>
+            String(startNum + i).padStart(3, '0')
+        );
+
+    const scenes = await api.archive.fetchScenes(activeCampaignId, sceneIds);
+    const npcLedger = useAppStore.getState().npcLedger ?? [];
+    const npcData = npcLedger.map(n => ({
+        id: n.id,
+        name: n.name,
+        aliases: n.aliases,
+    }));
+
+    const result = await sealChapterCombined(
+        provider,
+        scenes,
+        chapter.chapterId,
+        chapter.title,
+        sceneIds,
+        npcData
+    );
+
+    if (result.divergenceParseError && !result.summary && !result.divergences.length) {
+        toast.error('Chapter seal produced no output. Try regenerating.');
+        return;
+    }
+
+    if (result.divergenceParseError && result.divergences.length === 0) {
+        toast.warn('Summary generated but facts extraction failed. You can regenerate to retry.');
+    }
+
+    if (result.summary) {
+        const patch: Record<string, any> = {
+            ...result.summary,
+            invalidated: false,
+            sceneIds,
+        };
+        if (setSealedAt) {
+            // Auto-seal already sets sealedAt via server; just update content
+        }
+        await api.chapters.update(activeCampaignId, chapter.chapterId, patch);
+    } else if (setSealedAt || result.divergences.length > 0) {
+        // Even without summary, persist sceneIds
+        await api.chapters.update(activeCampaignId, chapter.chapterId, { sceneIds } as any);
+    }
+
+    if (result.divergences.length > 0) {
+        const currentSceneId = sceneIds[sceneIds.length - 1] ?? '';
+        const liveRegister = useAppStore.getState().divergenceRegister ?? EMPTY_REGISTER;
+        const merged = mergeSealEntries(liveRegister, result.divergences, currentSceneId);
+        callbacks.setDivergenceRegister?.(merged);
+
+        try {
+            await saveDivergenceRegister(activeCampaignId, merged);
+        } catch (e) {
+            console.warn('[CombinedSeal] Failed to save divergence register:', e);
+        }
+
+        console.log(`[CombinedSeal] Chapter ${chapter.chapterId}: ${result.divergences.length} facts extracted`);
+    }
+
+    const latestChapters = await api.chapters.list(activeCampaignId);
+    state.setChapters(latestChapters);
+
+    if (result.summary) {
+        console.log(`[CombinedSeal] Summary generated for "${chapter.title}"`);
     }
 }
 
@@ -231,46 +291,6 @@ async function runNPCTrack(
     }
 }
 
-async function runDivergenceTrack(
-    state: TurnState,
-    callbacks: TurnCallbacks,
-    displayInput: string,
-    lastAssistantContent: string,
-    activeCampaignId: string
-): Promise<void> {
-    if (state.settings.autoExtractDivergences === false) return;
-    if (!callbacks.setDivergenceRegister) return;
-
-    const divProvider = state.getFreshProvider();
-    if (!divProvider) return;
-
-    const currentRegister = state.divergenceRegister || EMPTY_REGISTER;
-    const sceneText = `[User]: ${displayInput.slice(0, 600)}\n[GM]: ${lastAssistantContent.slice(0, 1200)}`;
-    const archiveIndex = state.archiveIndex;
-    const sceneId = archiveIndex.length > 0
-        ? String(parseInt(archiveIndex[archiveIndex.length - 1].sceneId, 10) || 0).padStart(3, '0')
-        : '000';
-
-    const { entries } = await extractDivergences(divProvider, sceneText, sceneId, currentRegister);
-    if (entries.length > 0) {
-        const merged = mergeEntries(currentRegister, entries, sceneId);
-        callbacks.setDivergenceRegister(merged);
-
-        const lastMsg = state.getMessages().slice().reverse().find(m => m.role === 'assistant');
-        if (lastMsg && callbacks.updateMessageDivergence) {
-            callbacks.updateMessageDivergence(lastMsg.id, entries.map(e => e.id));
-        }
-
-        try {
-            await saveDivergenceRegister(activeCampaignId, merged);
-        } catch (e) {
-            console.warn('[DivergenceRegister] Failed to save register to server:', e);
-        }
-
-        console.log(`[DivergenceRegister] Scene #${sceneId}: ${entries.length} entries extracted`);
-    }
-}
-
 async function runPressureTrack(
     state: TurnState,
     callbacks: TurnCallbacks,
@@ -292,6 +312,7 @@ async function runPressureTrack(
         }
     }
     const activeNPCs = npcLedger.filter(npc => {
+        if (npc.archived) return false;
         if (!npc.name) return false;
         if (loreHeadersSet.has(npc.name.toLowerCase())) return false;
         return true;

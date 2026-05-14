@@ -267,6 +267,8 @@ export type CampaignSlice = {
     addNPCs: (newNpcs: NPCEntry[]) => void;
     updateNPC: (id: string, patch: Partial<NPCEntry>) => void;
     removeNPC: (id: string) => void;
+    archiveNPC: (id: string, turn: number, reason: string) => void;
+    restoreNPC: (id: string) => void;
     semanticFacts: SemanticFact[];
     setSemanticFacts: (facts: SemanticFact[]) => void;
     timeline: TimelineEvent[];
@@ -405,6 +407,24 @@ export const createCampaignSlice: StateCreator<CampaignDeps, [], [], CampaignSli
     removeNPC: (id) => set((s) => {
         preOpBackup(s.activeCampaignId, 'pre-delete-npc');
         const newLedger = s.npcLedger.filter(n => n.id !== id);
+        debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
+        return { npcLedger: newLedger };
+    }),
+    archiveNPC: (id, turn, reason) => set((s) => {
+        const newLedger = s.npcLedger.map(npc =>
+            npc.id === id
+                ? { ...npc, archived: true, archivedAtTurn: turn, archivedReason: reason }
+                : npc
+        );
+        debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
+        return { npcLedger: newLedger };
+    }),
+    restoreNPC: (id) => set((s) => {
+        const newLedger = s.npcLedger.map(npc =>
+            npc.id === id
+                ? { ...npc, archived: false, archivedAtTurn: undefined, archivedReason: undefined }
+                : npc
+        );
         debouncedSaveNPCLedger(s.activeCampaignId, newLedger);
         return { npcLedger: newLedger };
     }),
