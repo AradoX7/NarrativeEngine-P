@@ -36,6 +36,11 @@ export type ChatSlice = {
     addDivergenceEntry: (entry: DivergenceEntry) => void;
     dismissDivergenceReviewFlag: (entryId: string) => void;
     confirmReviewEntry: (id: string) => void;
+    toggleDivergenceFact: (factId: string) => void;
+    deleteDivergenceChapter: (sceneId: string) => void;
+    resetDivergenceRegister: () => void;
+    updateMessageDivergence: (messageId: string, divergenceIds: string[]) => void;
+    deleteReviewedEntry: (id: string) => void;
 };
 
 // ── Cross-slice dependencies ───────────────────────────────────────────
@@ -142,6 +147,44 @@ export const createChatSlice: StateCreator<ChatDeps, [], [], ChatSlice> = (set) 
             );
             debouncedSaveCampaignState();
             return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+        }),
+    toggleDivergenceFact: (factId) =>
+        set((s) => {
+            const entries = s.divergenceRegister.entries.map(e =>
+                e.id === factId ? { ...e, enabled: !(e.enabled !== false) } : e
+            );
+            debouncedSaveCampaignState();
+            return { divergenceRegister: { ...s.divergenceRegister, entries, lastUpdatedAt: Date.now() } };
+        }),
+    deleteDivergenceChapter: (sceneId) =>
+        set((s) => {
+            const entries = s.divergenceRegister.entries.filter(
+                e => e.sceneRef !== sceneId || e.source === 'manual'
+            );
+            const chapterToggles = { ...s.divergenceRegister.chapterToggles };
+            delete chapterToggles[sceneId];
+            debouncedSaveCampaignState();
+            return { divergenceRegister: { ...s.divergenceRegister, entries, chapterToggles, lastUpdatedAt: Date.now() } };
+        }),
+    resetDivergenceRegister: () =>
+        set(() => {
+            debouncedSaveCampaignState();
+            return { divergenceRegister: { entries: [], chapterToggles: {}, categoryToggles: {}, prunedLog: [], lastUpdatedSceneId: '', lastUpdatedAt: Date.now(), version: 2 } };
+        }),
+    updateMessageDivergence: (messageId, divergenceIds) =>
+        set((s) => {
+            const messages = s.messages.map(msg =>
+                msg.id === messageId ? { ...msg, divergenceIds } : msg
+            );
+            debouncedSaveCampaignState();
+            return { messages };
+        }),
+    deleteReviewedEntry: (id) =>
+        set((s) => {
+            const entries = s.divergenceRegister.entries.filter(e => e.id !== id);
+            const prunedLog = (s.divergenceRegister.prunedLog ?? []).filter(e => e.id !== id);
+            debouncedSaveCampaignState();
+            return { divergenceRegister: { ...s.divergenceRegister, entries, prunedLog, lastUpdatedAt: Date.now() } };
         }),
 
     // Chat defaults

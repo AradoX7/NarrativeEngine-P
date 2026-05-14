@@ -121,6 +121,7 @@ export function renderRegisterForPayload(
 
     const activeEntries = register.entries.filter(e => {
         if (e.pinned) return true;
+        if (e.enabled === false) return false;
         const chapterOn = register.chapterToggles[e.chapterId] !== false;
         if (!chapterOn) return false;
         const catToggles = register.categoryToggles[e.chapterId];
@@ -222,6 +223,34 @@ export function dismissReviewFlag(register: DivergenceRegister, entryId: string)
         e.id === entryId ? { ...e, reviewFlag: undefined, unrecognizedNpcNames: undefined } : e
     );
     return { ...register, entries, lastUpdatedAt: Date.now() };
+}
+
+export function toggleFact(register: DivergenceRegister, factId: string): DivergenceRegister {
+    const entries = register.entries.map(e => {
+        if (e.id !== factId) return e;
+        const currentEnabled = e.enabled !== false;
+        return { ...e, enabled: !currentEnabled };
+    });
+    return { ...register, entries, lastUpdatedAt: Date.now() };
+}
+
+export function deleteChapter(register: DivergenceRegister, sceneId: string): DivergenceRegister {
+    const entries = register.entries.filter(
+        e => e.sceneRef !== sceneId || e.source === 'manual'
+    );
+    const chapterToggles = { ...register.chapterToggles };
+    delete chapterToggles[sceneId];
+    return { ...register, entries, chapterToggles, lastUpdatedAt: Date.now() };
+}
+
+export function resetRegister(): DivergenceRegister {
+    return { ...EMPTY_REGISTER, lastUpdatedAt: Date.now() };
+}
+
+export function deleteReviewedEntry(register: DivergenceRegister, id: string): DivergenceRegister {
+    const entries = register.entries.filter(e => e.id !== id);
+    const prunedLog = (register.prunedLog ?? []).filter(e => e.id !== id);
+    return { ...register, entries, prunedLog, lastUpdatedAt: Date.now() };
 }
 
 export function getEntriesForChapter(register: DivergenceRegister, chapterId: string): DivergenceEntry[] {

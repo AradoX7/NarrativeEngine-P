@@ -122,6 +122,7 @@ export type DivergenceEntry = {
     sceneRef: string;
     npcIds: string[];
     pinned: boolean;
+    enabled?: boolean;
     source: 'auto' | 'manual';
     reviewFlag?: boolean;
     unrecognizedNpcNames?: string[];
@@ -131,6 +132,7 @@ export type DivergenceRegister = {
     entries: DivergenceEntry[];
     chapterToggles: Record<string, boolean>;
     categoryToggles: Record<string, Record<DivergenceCategory, boolean>>;
+    prunedLog?: DivergenceEntry[];
     lastUpdatedSceneId: string;
     lastUpdatedAt: number;
     version: 2;
@@ -263,6 +265,7 @@ export type ChatMessage = {
     tool_call_id?: string;
     reasoning_content?: string;
     ephemeral?: boolean;
+    divergenceIds?: string[];
 };
 
 /** @deprecated — replaced by ArchiveIndexEntry + ArchiveScene. Kept for backwards-compat migration. */
