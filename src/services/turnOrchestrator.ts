@@ -1,4 +1,4 @@
-import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister } from '../types';
+import type { AppSettings, GameContext, ChatMessage, NPCEntry, LoreChunk, CondenserState, ArchiveIndexEntry, TimelineEvent, EndpointConfig, ProviderConfig, ArchiveChapter, SamplingConfig, PipelinePhase, DivergenceRegister, ThinkingEffort } from '../types';
 import { uid } from '../utils/uid';
 import { buildPayload, sendMessage } from './chatEngine';
 import { rollEngines, rollDiceFairness } from './engineRolls';
@@ -25,7 +25,6 @@ export type TurnCallbacks = {
     setLoadingStatus?: (status: string | null) => void;
     setPipelinePhase?: (phase: PipelinePhase) => void;
     setDivergenceRegister?: (register: DivergenceRegister) => void;
-    updateMessageDivergence?: (messageId: string, divergenceIds: string[]) => void;
 };
 
 export type TurnState = {
@@ -122,6 +121,8 @@ export async function runTurn(
         inventoryCategories as (import('../types').InventoryItemCategory | 'equipped')[] | undefined,
         profileFields as string[] | undefined,
         deepContextSummary,
+        state.divergenceRegister,
+        state.chapters,
     );
 
     const payload = payloadResult.messages;
@@ -400,7 +401,8 @@ export async function runTurn(
             },
             tools ? [...tools] : undefined,
             abortController,
-            state.sampling
+            state.sampling,
+            (state.provider as EndpointConfig).thinkingEffort as ThinkingEffort | undefined
         );
     };
 

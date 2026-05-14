@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { X, Loader2, CheckCircle, XCircle, Plus, Trash2, ChevronDown, ChevronRight, Download, Upload, Lock, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { testConnection } from '../services/chatEngine';
-import type { AIPreset, EndpointConfig, ApiFormat, SamplingConfig } from '../types';
+import type { AIPreset, EndpointConfig, ApiFormat, SamplingConfig, ThinkingEffort } from '../types';
 import { detectFormatFromEndpoint } from '../utils/llmApiHelper';
 import { toast } from './Toast';
 import { uid } from '../utils/uid';
@@ -253,6 +253,29 @@ export function SettingsModal() {
                                 className="w-full bg-surface border border-border px-3 py-2 text-sm text-text-primary placeholder:text-text-dim/40 font-mono focus:border-terminal focus:outline-none"
                             />
                         </div>
+                        {section !== 'imageAI' && (
+                            <div>
+                                <label className="block text-[11px] text-text-dim uppercase tracking-wider mb-1">Thinking Effort</label>
+                                <div className="flex border border-border overflow-hidden rounded">
+                                    {(['off', 'low', 'medium', 'high', 'max'] as ThinkingEffort[]).map(level => (
+                                        <button
+                                            key={level}
+                                            onClick={() => updatePreset(activePreset!.id, { [section]: { ...config, thinkingEffort: level } })}
+                                            className={`flex-1 px-2 py-1.5 text-[9px] uppercase tracking-wider transition-colors focus:outline-none ${(config as EndpointConfig).thinkingEffort === level || (!(config as EndpointConfig).thinkingEffort && level === 'off')
+                                                ? 'bg-terminal text-void font-bold'
+                                                : 'bg-void text-text-dim hover:text-text-primary'
+                                            }`}
+                                            title={level === 'max' ? 'OpenAI & DeepSeek cap at High — Max sends High.' : undefined}
+                                        >
+                                            {level.charAt(0).toUpperCase() + level.slice(1)}
+                                        </button>
+                                    ))}
+                                </div>
+                                {(currentFormat === 'openai' || (config as EndpointConfig).thinkingEffort === 'max') && (config as EndpointConfig).thinkingEffort === 'max' && (
+                                    <p className="text-[8px] text-text-dim/70 mt-1">OpenAI/DeepSeek cap at High — Max sends High.</p>
+                                )}
+                            </div>
+                        )}
 
                         <div className="pt-2">
                             <button

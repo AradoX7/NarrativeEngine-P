@@ -1,6 +1,19 @@
-import type { EndpointConfig, ProviderConfig, ApiFormat, SamplingConfig } from '../types';
+import type { EndpointConfig, ProviderConfig, ApiFormat, SamplingConfig, ThinkingEffort } from '../types';
 
 type AnyProvider = EndpointConfig | ProviderConfig;
+
+const OPENAI_EFFORT_MAP: Record<ThinkingEffort, string | undefined> = {
+    off: undefined, low: 'low', medium: 'medium', high: 'high', max: 'high'
+};
+const DEEPSEEK_EFFORT_MAP: Record<ThinkingEffort, string | undefined> = {
+    off: undefined, low: 'low', medium: 'medium', high: 'high', max: 'high'
+};
+const CLAUDE_BUDGET_MAP: Record<ThinkingEffort, number | undefined> = {
+    off: undefined, low: 1024, medium: 4096, high: 8192, max: 16384
+};
+const GEMINI_LEVEL_MAP: Record<ThinkingEffort, number | undefined> = {
+    off: undefined, low: 512, medium: 2048, high: 4096, max: 8192
+};
 
 export function getApiFormat(provider: AnyProvider): ApiFormat {
     return (provider as EndpointConfig).apiFormat || 'openai';
@@ -176,10 +189,11 @@ function transformGeminiTools(tools: unknown[]): unknown[] {
 export function buildChatBody(
     provider: AnyProvider,
     messages: { role: string; content: string | null; name?: string; tool_calls?: unknown[]; tool_call_id?: string; reasoning_content?: string }[],
-    options?: { stream?: boolean; max_tokens?: number; temperature?: number; tools?: unknown[]; sampling?: SamplingConfig }
+    options?: { stream?: boolean; max_tokens?: number; temperature?: number; tools?: unknown[]; sampling?: SamplingConfig; thinkingEffort?: ThinkingEffort }
 ): Record<string, unknown> {
     const format = getApiFormat(provider);
     const stream = options?.stream ?? false;
+    const effort = options?.thinkingEffort ?? (provider as EndpointConfig).thinkingEffort;
 
     if (format === 'claude') {
         const { system, messages: convMessages } = transformClaudeMessages(messages);
@@ -190,6 +204,13 @@ export function buildChatBody(
             stream,
         };
         if (system) body.system = system;
+
+        if (effort && effort !== 'off') {
+            const budget = CLAUDE_BUDGET_MAP[effort];
+            if (budget !== undefined) {
+                body.thinking = { type: 'enabled', budget_tokens: budget };
+            }
+        }
 
         if (options?.temperature !== undefined) body.temperature = options.temperature;
         else if (options?.sampling?.temperature !== undefined) body.temperature = options.sampling.temperature;
@@ -215,6 +236,14 @@ export function buildChatBody(
         if (options?.sampling?.top_k !== undefined) genConfig.topK = options.sampling.top_k;
         if (options?.sampling?.frequency_penalty !== undefined) genConfig.frequencyPenalty = options.sampling.frequency_penalty;
         if (options?.sampling?.presence_penalty !== undefined) genConfig.presencePenalty = options.sampling.presence_penalty;
+
+        if (effort && effort !== 'off') {
+            const budget = GEMINI_LEVEL_MAP[effort];
+            if (budget !== undefined) {
+                genConfig.thinkingConfig = { thinkingBudget: budget };
+            }
+        }
+
         body.generationConfig = genConfig;
 
         if (options?.tools && options.tools.length > 0) {
@@ -223,7 +252,7 @@ export function buildChatBody(
         return body;
     }
 
-    // OpenAI / Ollama
+    // OpenAI / Ollama / DeepSeek
     const isOllama = format === 'ollama';
     const body: Record<string, unknown> = {
         model: provider.modelName,
@@ -247,6 +276,27 @@ export function buildChatBody(
         if (s.dry_multiplier !== undefined) body.dry_multiplier = s.dry_multiplier;
         if (s.dry_base !== undefined) body.dry_base = s.dry_base;
         if (s.dry_allowed_length !== undefined) body.dry_allowed_length = s.dry_allowed_length;
+    }
+
+    if (effort && effort !== 'off') {
+        if (isOllama) {
+            const ollamaThinkBudget: Record<ThinkingEffort, number | undefined> = {
+                off: undefined, low: 2048, medium: 2048, high: 8192, max: 8192
+            };
+            const thinkBudget = ollamaThinkBudget[effort];
+            if (thinkBudget !== undefined) {
+                body.think = true;
+                (body as Record<string, unknown>).options = { ...(body.options || {}), num_predict: thinkBudget };
+            }
+        } else {
+            const modelName = (provider.modelName || '').toLowerCase();
+            const isDeepSeek = modelName.includes('deepseek') || (provider as EndpointConfig).apiFormat === 'deepseek' || (() => { try { return new URL(provider.endpoint.replace(/\/+$/, '')).hostname.includes('deepseek'); } catch { return false; } })();
+            const effortMap = isDeepSeek ? DEEPSEEK_EFFORT_MAP : OPENAI_EFFORT_MAP;
+            const mapped = effortMap[effort];
+            if (mapped !== undefined) {
+                body.reasoning_effort = mapped;
+            }
+        }
     }
 
     if (!isOllama && options?.tools && options.tools.length > 0) {

@@ -63,11 +63,14 @@ export type LoreCheckSelection = {
     surroundingContext: string;
 };
 
+export type ThinkingEffort = 'off' | 'low' | 'medium' | 'high' | 'max';
+
 export type EndpointConfig = {
     endpoint: string;
     apiKey: string;
     modelName: string;
     apiFormat?: ApiFormat;
+    thinkingEffort?: ThinkingEffort;
 };
 
 export type SamplingConfig = {
