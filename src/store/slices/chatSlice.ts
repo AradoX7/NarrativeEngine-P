@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { ArchiveIndexEntry, ChatMessage, CondenserState, GameContext, DivergenceRegister, DivergenceEntry, DivergenceCategory } from '../../types';
 import { safeSceneNum } from '../../utils/helpers';
+import { debouncedSaveCampaignState } from './campaignSlice';
 
 const MAX_PRUNED_LOG = 100;
 
