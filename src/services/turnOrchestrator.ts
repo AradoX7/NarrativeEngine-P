@@ -119,6 +119,28 @@ export async function runTurn(
         return;
     }
 
+    if (context.npcIntroEngineActive) {
+        const seenNpcNames = new Set((npcLedger ?? []).map((n: NPCEntry) => n.name.toLowerCase()));
+        try {
+            const auxProvider = useAppStore.getState().getActiveAuxiliaryEndpoint() ?? provider;
+            const { rollCharacterIntroEngine } = await import('./charIntroEngine');
+            const introResult = await rollCharacterIntroEngine(
+                context,
+                seenNpcNames,
+                messages,
+                auxProvider
+            );
+            if (introResult.tag) {
+                finalInput = finalInput + '\n' + introResult.tag;
+            }
+            if (introResult.newDC !== context.npcIntroDC) {
+                callbacks.updateContext({ npcIntroDC: introResult.newDC });
+            }
+        } catch (err) {
+            console.warn('[CharIntroEngine] Failed to run intro engine:', err);
+        }
+    }
+
     callbacks.setPipelinePhase?.('building-prompt');
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
     const payloadResult = buildPayload(

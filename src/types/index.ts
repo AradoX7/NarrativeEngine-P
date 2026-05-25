@@ -192,6 +192,20 @@ export type EncounterConfig = {
     tones: string[];
 };
 
+export type CharacterIntroEntry = {
+    name: string;
+    type: 'wandering' | 'location';
+    location?: string;          // only for type === 'location'
+    boostKeywords?: string[];   // if present in last 3 assistant msgs → 3x weight
+    weight?: number;            // base draw weight (default 1)
+};
+
+export type NpcIntroConfig = {
+    characters: CharacterIntroEntry[];
+    initialDC: number;
+    dcReduction: number;
+};
+
 export type WorldEventConfig = {
     initialDC: number; // Starting DC (default: 498)
     dcReduction: number; // Amount DC drops per turn (default: 2)
@@ -241,6 +255,10 @@ export type GameContext = {
     worldVibe: string;
     notebook: NotebookNote[];
     notebookActive: boolean;
+    // NPC Intro Engine
+    npcIntroEngineActive?: boolean;         // master toggle
+    npcIntroDC?: number;                    // current DC (decays on failed rolls)
+    npcIntroConfig?: NpcIntroConfig;        // config block
 };
 
 export type NotebookNote = {
@@ -327,6 +345,10 @@ export type LoreChunk = {
     tokens: number;
     alwaysInclude: boolean;
     triggerKeywords: string[];
+    secondaryKeywords?: string[];                // AND-gate filter from <!-- rag: --> hint; chunk only matches if a secondary keyword also hits
+    ragMode?: 'always' | 'keyword' | 'vector';  // explicit mode from <!-- rag: --> hint; authoritative over heuristics
+    keywordsEnriched?: boolean;                  // keywords enriched via LLM
+    enrichedVersion?: number;                    // LLM keywords enricher version
     scanDepth: number;
     category: LoreCategory;
     linkedEntities: string[];
