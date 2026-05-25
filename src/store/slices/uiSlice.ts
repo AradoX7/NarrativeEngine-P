@@ -34,6 +34,15 @@ export type UISlice = {
     deepArmed: boolean;
     setDeepArmed: (v: boolean) => void;
     toggleDeepArmed: () => void;
+    troubleModalOpen: boolean;
+    troubleLoading: boolean;
+    troubleOptions: string[];
+    openTroubleModal: (options: string[]) => void;
+    closeTroubleModal: () => void;
+    setTroubleLoading: (v: boolean) => void;
+    composerInjection: string | null;
+    injectToComposer: (text: string) => void;
+    consumeComposerInjection: () => void;
 };
 
 // ── Slice creator ──────────────────────────────────────────────────────
@@ -68,4 +77,13 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set) => ({
     deepArmed: false,
     setDeepArmed: (v) => set({ deepArmed: v }),
     toggleDeepArmed: () => set((s) => ({ deepArmed: !s.deepArmed })),
+    troubleModalOpen: false,
+    troubleLoading: false,
+    troubleOptions: [],
+    openTroubleModal: (options) => set({ troubleOptions: options, troubleModalOpen: true, troubleLoading: false }),
+    closeTroubleModal: () => set({ troubleModalOpen: false, troubleOptions: [], troubleLoading: false }),
+    setTroubleLoading: (v) => set({ troubleLoading: v }),
+    composerInjection: null,
+    injectToComposer: (text) => set({ composerInjection: text }),
+    consumeComposerInjection: () => set({ composerInjection: null }),
 });
