@@ -2,18 +2,6 @@ import type { DivergenceRegister, TopicClusters, TopicCluster, EndpointConfig, P
 import { llmCall } from '../utils/llmCall';
 import { countTokens } from './tokenizer';
 import { extractJsonRobust } from './jsonExtract';
-        }
-
-        if (lastCompleteGroupEnd > 0) {
-            text = text.slice(0, lastCompleteGroupEnd + 1) + ']}';
-            try {
-                return JSON.parse(text);
-            } catch { /* fall through */ }
-        }
-
-        throw new Error('Response was truncated and could not be recovered. Try a model with a larger output limit.');
-    }
-}
 
 export type ClusteringCancelled = { cancelled: boolean };
 

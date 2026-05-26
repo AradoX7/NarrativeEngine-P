@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Sparkles, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import { callLLM } from '../services/callLLM';
+import { sendMessage } from '../services/llmService';
 import { extractJson } from '../services/payloadBuilder';
 import { CATEGORY_LABELS, coerceCategory } from '../services/divergenceRegister';
 import { uid } from '../utils/uid';
@@ -40,10 +40,17 @@ export function DivergenceReviewModal() {
                 setIsStructuring(false);
                 return;
             }
-            const raw = await callLLM(provider, `${STRUCTURE_PROMPT}\n\nFact: ${factText.trim()}`, {
-                temperature: 0.3,
-                maxTokens: 256,
-                priority: 'low',
+            const raw = await new Promise<string>((resolve, reject) => {
+                sendMessage(
+                    provider,
+                    [{ role: 'user', content: `${STRUCTURE_PROMPT}\n\nFact: ${factText.trim()}` }],
+                    () => {},
+                    (text) => resolve(text),
+                    (err) => reject(new Error(err)),
+                    undefined,
+                    undefined,
+                    { temperature: 0.3, maxTokens: 256 },
+                );
             });
             const jsonStr = extractJson(raw);
             const parsed = JSON.parse(jsonStr);
