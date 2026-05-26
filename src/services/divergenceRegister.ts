@@ -1,7 +1,7 @@
 import type { DivergenceEntry, DivergenceRegister, DivergenceCategory, ArchiveChapter, ArchiveIndexEntry, ChatMessage, NPCEntry, EndpointConfig, ProviderConfig } from '../types';
 import { countTokens } from './tokenizer';
 import { toast } from '../components/Toast';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 
 export const EMPTY_REGISTER: DivergenceRegister = {
     entries: [],
@@ -369,7 +369,7 @@ If all entries should be kept, reply with all indices. If none matter, reply wit
 
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
-            const raw = await callLLM(provider, prompt, { priority: 'low', maxTokens: 500 });
+            const raw = await llmCall(provider, prompt, { priority: 'low', maxTokens: 500 });
             const cleaned = raw.replace(/```json\s*|```\s*/g, '').trim();
             const indices: number[] = JSON.parse(cleaned);
 

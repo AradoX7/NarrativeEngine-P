@@ -1,5 +1,5 @@
 import type { NPCEntry, EndpointConfig } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { extractJson } from './payloadBuilder';
 
 export function extractNpcIdsFromBody(text: string, npcLedger: NPCEntry[]): string[] {
@@ -39,7 +39,7 @@ ${npcList}
 Return a JSON array of NPC IDs only: ["id1", "id2"]`;
 
     try {
-        const response = await callLLM(provider, prompt, { temperature: 0, maxTokens: 200, priority: 'low' as const });
+        const response = await llmCall(provider, prompt, { temperature: 0, maxTokens: 200, priority: 'low' as const });
 
         const jsonStr = extractJson(response);
         const ids = JSON.parse(jsonStr);

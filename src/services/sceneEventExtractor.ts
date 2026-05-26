@@ -1,5 +1,6 @@
 import type { EndpointConfig, ProviderConfig, SceneEvent, SceneEventType } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
+import { extractJsonRobust } from './jsonExtract';
 
 export async function extractSceneEvents(
     provider: EndpointConfig | ProviderConfig,
@@ -39,23 +40,15 @@ RULES:
 Respond with a JSON array only. No markdown formatting, no prose, no reasoning tags, no backticks.`;
 
     try {
-        const raw = await callLLM(provider, prompt, {
+        const raw = await llmCall(provider, prompt, {
             temperature: 0.1,
             priority: 'low',
             maxTokens: 1000,
             signal,
         });
 
-        let clean = raw.replace(/<think[\s\S]*?<\/think>/gi, '');
-        const mdMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
-        if (mdMatch) clean = mdMatch[1];
-
-        const bracketStart = clean.indexOf('[');
-        const bracketEnd = clean.lastIndexOf(']');
-        if (bracketStart === -1 || bracketEnd === -1) return [];
-
-        const parsed = JSON.parse(clean.substring(bracketStart, bracketEnd + 1));
-        if (!Array.isArray(parsed)) return [];
+        const { value: parsed, parseOk } = extractJsonRobust<unknown[]>(raw, []);
+        if (!parseOk || !Array.isArray(parsed)) return [];
 
         const VALID_EVENT_TYPES = new Set<string>([
             'combat', 'discovery', 'item_acquired', 'item_lost', 'relationship_shift',

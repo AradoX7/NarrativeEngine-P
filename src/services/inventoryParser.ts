@@ -7,7 +7,7 @@
  */
 
 import type { ChatMessage, ProviderConfig, EndpointConfig, InventoryItem } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 
 export type InventoryOp =
     | { action: 'add'; name: string; qty: number; category?: string; keywords?: string[]; notes?: string }
@@ -37,7 +37,7 @@ export async function scanInventory(
     const prompt = `You are an AI inventory manager for an RPG. Review the recent chat and inventory below.\nIdentify items gained, lost, consumed, equipped, or unequipped.\n\n=== CURRENT INVENTORY ===\n${buildInventoryJson(currentItems)}\n\n=== RECENT CHAT HISTORY ===\n${turns}\n\n=== INSTRUCTIONS ===\nReturn ONLY a valid JSON array of operations. No other text.\nEach operation is an object with an "action" field.\n\nActions:\n- add: {action:"add", name:"Torch", qty:3, category:"misc", keywords:["fire","light"]}\n- remove: {action:"remove", id:"ITEM_ID_HERE"}\n- update: {action:"update", id:"ITEM_ID_HERE", changes:{qty:2, name:"New Name"}}\n- consume: {action:"consume", id:"ITEM_ID_HERE", qty:1}\n- equip: {action:"equip", id:"ITEM_ID_HERE"}\n- unequip: {action:"unequip", id:"ITEM_ID_HERE"}\n\nIf nothing changed, return: []`;
 
     try {
-        const result = await callLLM(provider, prompt, { priority: 'low' });
+        const result = await llmCall(provider, prompt, { priority: 'low' });
         let text = result;
         const md = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
         if (md) text = md[1];

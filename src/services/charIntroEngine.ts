@@ -9,12 +9,9 @@ export type CharIntroResult = {
 const LOCATION_PROMPT = `Based on the following scene, what is the party's current location? Reply with only the location name, nothing else.`;
 
 function extractLocationFromResponse(response: string): string {
-    const cleaned = response.trim();
-    const thinkMatch = cleaned.match(/<think>[\s\S]*?<\/think>/i);
-    if (thinkMatch) {
-        const afterThink = cleaned.slice(thinkMatch.index! + thinkMatch[0].length).trim();
-        return afterThink || cleaned;
-    }
+    const cleaned = response.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
+    return cleaned || response.replace(/<think[\s\S]*?<\/think>/gi, '').trim();
+}
     return cleaned;
 }
 
@@ -137,7 +134,6 @@ export async function rollCharacterIntroEngine(
 
     const tag = `[INTRODUCE CHARACTER: ${picked.name}]`;
     const resetDC = config.initialDC;
-    console.log(`[CharIntroEngine] Triggered! Introducing: ${picked.name} (type=${picked.type}). Resetting DC to ${resetDC}`);
 
     return { tag, newDC: resetDC };
 }

@@ -1,41 +1,7 @@
 import type { DivergenceRegister, TopicClusters, TopicCluster, EndpointConfig, ProviderConfig } from '../types';
 import { llmCall } from '../utils/llmCall';
 import { countTokens } from './tokenizer';
-
-/**
- * Robustly extract a JSON object from a potentially truncated LLM response.
- * Handles cut-off JSON by closing any open structure before parsing.
- */
-function extractJsonRobust(raw: string): { groups: Array<{ name: string; factIds: string[] }> } {
-    let clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
-    const mdMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (mdMatch) clean = mdMatch[1];
-
-    const start = clean.indexOf('{');
-    if (start === -1) throw new Error('No JSON object found in response');
-
-    let text = clean.slice(start);
-
-    try {
-        return JSON.parse(text);
-    } catch {
-        // Truncated response — recover by finding last complete group object
-        let depth = 0;
-        let inString = false;
-        let escape = false;
-        let lastCompleteGroupEnd = -1;
-
-        for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
-            if (escape) { escape = false; continue; }
-            if (ch === '\\' && inString) { escape = true; continue; }
-            if (ch === '"') { inString = !inString; continue; }
-            if (inString) continue;
-            if (ch === '{' || ch === '[') depth++;
-            if (ch === '}' || ch === ']') {
-                depth--;
-                if (depth === 2) lastCompleteGroupEnd = i;
-            }
+import { extractJsonRobust } from './jsonExtract';
         }
 
         if (lastCompleteGroupEnd > 0) {
@@ -103,10 +69,13 @@ RULES:
     onStatus(`Parsing response (${raw.length.toLocaleString()} chars)…`);
     console.log(`[FactClusterer] Response: ${raw.length} chars`);
 
-    const parsed = extractJsonRobust(raw);
+    const { value: parsed, parseOk } = extractJsonRobust<{ groups: Array<{ name: string; factIds: string[] }> }>(
+        raw,
+        { groups: [] },
+    );
 
-    if (!Array.isArray(parsed.groups)) {
-        throw new Error('AI response missing "groups" array.');
+    if (!parseOk || !Array.isArray(parsed.groups)) {
+        throw new Error(parseOk ? 'AI response missing "groups" array.' : 'Response was truncated and could not be recovered. Try a model with a larger output limit.');
     }
 
     const knownIds = new Set(entries.map(e => e.id));

@@ -1,5 +1,6 @@
 import type { EndpointConfig, ProviderConfig, ArchiveIndexEntry } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
+import { extractJsonRobust } from './jsonExtract';
 
 export async function runArchivePlanner(
     provider: EndpointConfig | ProviderConfig,
@@ -48,23 +49,15 @@ RULES:
             ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
             : AbortSignal.timeout(timeoutMs);
 
-        const raw = await callLLM(provider, prompt, {
+        const raw = await llmCall(provider, prompt, {
             temperature: 0.1,
             priority: 'high',
             maxTokens: 300,
             signal: abortSignal,
         });
 
-        let clean = raw.replace(/<think[\s\S]*?<\/think>/gi, '');
-        const mdMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
-        if (mdMatch) clean = mdMatch[1];
-
-        const bracketStart = clean.indexOf('[');
-        const bracketEnd = clean.lastIndexOf(']');
-        if (bracketStart === -1 || bracketEnd === -1) return [];
-
-        const parsed = JSON.parse(clean.substring(bracketStart, bracketEnd + 1));
-        if (Array.isArray(parsed) && parsed.every((x: unknown) => typeof x === 'string')) {
+        const { value: parsed, parseOk } = extractJsonRobust<string[]>(raw, []);
+        if (parseOk && Array.isArray(parsed) && parsed.every((x: unknown) => typeof x === 'string')) {
             console.log(`[ArchivePlanner] Ranked scene IDs from AI: [${parsed.join(', ')}]`);
             return parsed;
         }

@@ -28,7 +28,7 @@ const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32; // 256 bits
-const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_ITERATIONS = 600000;
 
 /**
  * Derive a 256-bit key from a password using PBKDF2
@@ -227,12 +227,16 @@ export class KeyVault {
             const key = Buffer.from(hexKey, 'hex');
             const encrypted = fs.readFileSync(this.vaultPath);
 
+            // Detect format from encrypted buffer length (same heuristic as unlock())
+            const ciphertextLength = encrypted.readUInt32BE(4);
+            const hasSalt = encrypted.length === (4 + 4 + IV_LENGTH + ciphertextLength + TAG_LENGTH + SALT_LENGTH);
+
             let vaultData;
-            if (this.isMachineKey) {
-                vaultData = encrypted;
-            } else {
+            if (hasSalt) {
                 vaultData = encrypted.slice(0, -SALT_LENGTH);
                 this.currentSalt = encrypted.slice(-SALT_LENGTH);
+            } else {
+                vaultData = encrypted;
             }
 
             this.unlockedData = decryptData(vaultData, key);

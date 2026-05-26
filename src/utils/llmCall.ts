@@ -34,16 +34,22 @@ export async function llmCall(
         timeoutMs?: number;
     }
 ): Promise<string> {
-    const inner = runInner(provider, prompt, opts);
-
     if (!opts?.trackingLabel || !opts?.timeoutMs) {
-        return inner;
+        return runInner(provider, prompt, opts);
     }
 
     const label = opts.trackingLabel;
     const trackingName = (provider as EndpointConfig).modelName || provider.endpoint;
     const handle = startUtilityCall(label, trackingName, opts.timeoutMs);
     const startedAt = Date.now();
+
+    // Wire abort: when the deadline elapses, cancel the in-flight fetch too.
+    const ownAbort = new AbortController();
+    const combinedSignal = opts.signal
+        ? AbortSignal.any([opts.signal, ownAbort.signal])
+        : ownAbort.signal;
+
+    const inner = runInner(provider, prompt, { ...opts, signal: combinedSignal });
 
     try {
         const result = await Promise.race([
@@ -52,6 +58,7 @@ export async function llmCall(
         ]);
 
         if (result.kind === 'timeout') {
+            ownAbort.abort();
             handle.settleError('timeout');
             throw new UtilityTimeoutError(Date.now() - startedAt, label);
         }

@@ -127,6 +127,9 @@ If nothing duplicates, return {"duplicates":[]} exactly.`;
 
         if (!Array.isArray(parsed.duplicates)) continue;
 
+        const entryById = new Map<string, DivergenceEntry>();
+        for (const e of bucket.entries) entryById.set(e.id, e);
+
         const bucketIdSet = new Set(bucket.entries.map(e => e.id));
 
         for (const group of parsed.duplicates) {
@@ -136,8 +139,9 @@ If nothing duplicates, return {"duplicates":[]} exactly.`;
             if (validIds.length < 2) continue;
 
             const sortedByRecency = [...validIds].sort((a, b) => {
-                const entryA = bucket.entries.find(e => e.id === a)!;
-                const entryB = bucket.entries.find(e => e.id === b)!;
+                const entryA = entryById.get(a);
+                const entryB = entryById.get(b);
+                if (!entryA || !entryB) return 0;
                 const chIdxA = chapterIndexMap.get(entryA.chapterId) ?? 0;
                 const chIdxB = chapterIndexMap.get(entryB.chapterId) ?? 0;
                 if (chIdxA !== chIdxB) return chIdxA - chIdxB;

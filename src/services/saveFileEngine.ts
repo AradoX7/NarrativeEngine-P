@@ -1,7 +1,7 @@
 import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, ArchiveChapter, DivergenceEntry, SceneEvent, SceneEventType } from '../types';
 import { countTokens } from './tokenizer';
 import { extractJson } from './payloadBuilder';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory } from './divergenceRegister';
 import { uid } from '../utils/uid';
 
@@ -207,7 +207,7 @@ export async function generateHeaderIndex(
                 promptTokens: countTokens(prompt)
             });
 
-            const output = await callLLM(provider, prompt, { priority: 'low' });
+const output = await llmCall(provider, prompt, { priority: 'low' });
             const { valid } = validateHeaderIndex(output);
 
             if (valid) {
@@ -376,7 +376,7 @@ export async function generateChapterSummary(
             promptTokens: countTokens(prompt)
         });
 
-        const output = await callLLM(provider, prompt, { priority: 'low' });
+        const output = await llmCall(provider, prompt, { priority: 'low' });
         const result = parseChapterSummaryOutput(output);
 
         if (result) {
@@ -755,7 +755,7 @@ export async function sealChapterCombined(
             promptTokens: countTokens(prompt),
         });
 
-        const output = await callLLM(provider, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000 });
+        const output = await llmCall(provider, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000 });
         const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
 
         if (result.summary && !result.divergenceParseError) {

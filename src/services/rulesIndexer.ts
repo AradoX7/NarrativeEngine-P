@@ -2,17 +2,18 @@ import type { LoreChunk, RuleChunkMeta, EndpointConfig, ProviderConfig } from '.
 import { chunkLoreFile } from './loreChunker';
 import { api } from './apiClient';
 import { llmCall } from '../utils/llmCall';
+import { extractJsonRobust } from './jsonExtract';
 
 const STOP_WORDS = new Set([
     'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'has', 'her',
     'was', 'one', 'our', 'out', 'his', 'had', 'may', 'who', 'been', 'some',
     'them', 'than', 'its', 'into', 'only', 'with', 'from', 'this', 'that',
-    'they', 'will', 'each', 'make', 'like', 'been', 'have', 'many', 'most',
+    'they', 'will', 'each', 'make', 'like', 'have', 'many', 'most',
     'also', 'made', 'after', 'being', 'their', 'much', 'very', 'when', 'what',
     'which', 'more', 'other', 'about', 'such', 'over', 'just', 'does', 'then',
     'could', 'would', 'should', 'where', 'there', 'those', 'these', 'still',
     'well', 'back', 'even', 'here', 'every', 'both', 'through', 'between',
-    'before', 'after', 'during', 'without', 'again', 'because', 'under',
+    'before', 'during', 'without', 'again', 'because', 'under',
 ]);
 
 function stemSimple(word: string): string {
@@ -80,7 +81,9 @@ function deriveDefaultMeta(chunk: LoreChunk, existingMeta?: RuleChunkMeta): Rule
     if (existingMeta) {
         return {
             ...existingMeta,
-            activationModes: chunk.ragMode ? [chunk.ragMode] : existingMeta.activationModes,
+            activationModes: existingMeta.activationModesUserEdited
+                ? existingMeta.activationModes
+                : (chunk.ragMode ? [chunk.ragMode] : defaultModes),
             triggerKeywords: existingMeta.keywordsUserEdited
                 ? existingMeta.triggerKeywords
                 : merged,
@@ -97,6 +100,7 @@ function deriveDefaultMeta(chunk: LoreChunk, existingMeta?: RuleChunkMeta): Rule
         secondaryKeywords: chunk.secondaryKeywords ?? [],
         priority: chunk.priority,
         keywordsUserEdited: false,
+        activationModesUserEdited: false,
     };
 }
 
@@ -118,15 +122,10 @@ List 3-5 keywords a player would type to trigger this rule, and 1-2 secondary ke
             maxTokens: 150,
         });
 
-        let clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '');
-        const mdMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/i);
-        if (mdMatch) clean = mdMatch[1];
-
-        const start = clean.indexOf('{');
-        const end = clean.lastIndexOf('}');
-        if (start === -1 || end === -1) return { primary: [], secondary: [] };
-
-        const parsed = JSON.parse(clean.substring(start, end + 1));
+        const { value: parsed } = extractJsonRobust<{ primary?: string[]; secondary?: string[] }>(
+            raw,
+            { primary: [], secondary: [] },
+        );
         return {
             primary: Array.isArray(parsed.primary) ? parsed.primary.map(String) : [],
             secondary: Array.isArray(parsed.secondary) ? parsed.secondary.map(String) : [],
@@ -172,23 +171,46 @@ export async function indexRules(
     onProgress?.({ phase: 'embedding', current: 0, total: newOrChanged.length });
 
     let embeddedCount = 0;
-    for (const chunk of newOrChanged) {
-        try {
-            const textToEmbed = `${chunk.header}\n${chunk.content}`;
-            const res = await api.rules.upsertEmbedding(campaignId, chunk.id, textToEmbed);
-            if (res) {
-                const meta = chunkMeta[chunk.id];
-                if (meta) {
-                    meta.hasEmbedding = true;
-                    meta.modelId = res.modelId;
-                    meta.version = res.version;
-                }
+    const CONCURRENCY = 3;
+    const embedQueue = [...newOrChanged];
+    const embedResults = new Map<string, { modelId?: string; version?: number }>();
+    await new Promise<void>((resolveAll) => {
+        let inFlight = 0;
+        let idx = 0;
+        function next() {
+            while (inFlight < CONCURRENCY && idx < embedQueue.length) {
+                const chunk = embedQueue[idx++];
+                inFlight++;
+                (async () => {
+                    try {
+                        const textToEmbed = `${chunk.header}\n${chunk.content}`;
+                        const res = await api.rules.upsertEmbedding(campaignId, chunk.id, textToEmbed);
+                        if (res) embedResults.set(chunk.id, { modelId: res.modelId, version: res.version });
+                    } catch (e) {
+                        console.warn(`[RulesIndexer] REST embedding failed for ${chunk.id}:`, e);
+                    } finally {
+                        inFlight--;
+                        embeddedCount++;
+                        onProgress?.({ phase: 'embedding', current: embeddedCount, total: newOrChanged.length });
+                        if (embedQueue.length - idx + inFlight === 0 && inFlight === 0) {
+                            resolveAll();
+                        } else {
+                            next();
+                        }
+                    }
+                })();
             }
-        } catch (e) {
-            console.warn(`[RulesIndexer] REST embedding failed for ${chunk.id}:`, e);
+            if (idx >= embedQueue.length && inFlight === 0) resolveAll();
         }
-        embeddedCount++;
-        onProgress?.({ phase: 'embedding', current: embeddedCount, total: newOrChanged.length });
+        next();
+    });
+    for (const [id, res] of embedResults) {
+        const meta = chunkMeta[id];
+        if (meta) {
+            meta.hasEmbedding = true;
+            if (res.modelId) meta.modelId = res.modelId;
+            if (res.version) meta.version = res.version;
+        }
     }
 
     // Clean up meta entries for removed chunks

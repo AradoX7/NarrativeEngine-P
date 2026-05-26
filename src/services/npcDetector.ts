@@ -1,5 +1,5 @@
 import type { NPCEntry, EndpointConfig, ProviderConfig } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { extractJson } from './chatEngine';
 
 const GENERIC_ROLE_PATTERN = /^(guard|scout|merchant|soldier|bandit|thug|villager|citizen|patron|cultist|goblin|orc|skeleton|zombie|enemy|monster|creature)\s+[a-z0-9]$/i;
@@ -89,7 +89,7 @@ If none are character names, respond with [].
 Example: ["Captain Aldric", "Orin"]`;
 
     try {
-        const raw = await callLLM(provider, prompt, { priority: 'low' });
+        const raw = await llmCall(provider, prompt, { priority: 'low' });
 
         if (raw) {
             const cleanStr = extractJson(raw);

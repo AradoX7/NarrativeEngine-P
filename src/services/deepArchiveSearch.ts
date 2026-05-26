@@ -1,5 +1,5 @@
 import type { ArchiveChapter, ArchiveIndexEntry, ChatMessage, EndpointConfig } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { fetchArchiveScenes } from './archiveMemory';
 import { safeSceneNum } from '../utils/helpers';
 
@@ -118,7 +118,7 @@ async function scanChapters(
     ].join('\n');
 
     const rawContent = await withTimeout(
-        callLLM(utilityEndpoint, prompt, {
+        llmCall(utilityEndpoint, prompt, {
             temperature: 0.1,
             signal,
             priority: 'high',
@@ -170,7 +170,7 @@ async function scanScenes(
     ].join('\n');
 
     const rawContent = await withTimeout(
-        callLLM(utilityEndpoint, prompt, {
+        llmCall(utilityEndpoint, prompt, {
             temperature: 0.1,
             signal,
             priority: 'high',
@@ -217,7 +217,7 @@ async function summarizeToBudget(
     ].join('\n');
 
     return withTimeout(
-        callLLM(utilityEndpoint, prompt, {
+        llmCall(utilityEndpoint, prompt, {
             temperature: 0.2,
             signal,
             priority: 'high',
@@ -290,7 +290,7 @@ async function summarizePartitions(
         ...partitionSummaries,
     ].join('\n\n');
 
-    return callLLM(utilityEndpoint, mergePrompt, {
+    return llmCall(utilityEndpoint, mergePrompt, {
         temperature: 0.2,
         signal,
         priority: 'high',

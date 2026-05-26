@@ -9,7 +9,7 @@ import { recommendContext } from './contextRecommender';
 import { deepArchiveScan } from './deepArchiveSearch';
 import { getDivergenceSceneIds, EMPTY_REGISTER, buildSceneMap } from './divergenceRegister';
 import { rerankCandidates, type RerankCandidate } from './semanticReranker';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { queryFacts, formatFactsForContext } from './semanticMemory';
 import { runArchivePlanner } from './archivePlanner';
 
@@ -22,7 +22,7 @@ async function expandQuery(query: string, npcLedger: NPCEntry[], utilityEndpoint
 Known NPCs: ${npcContext}
 Generate 2 alternative phrasings that expand pronouns, add likely entity names from context, and use synonyms. Return ONLY a JSON array of 2 strings. No prose.`;
 
-        const raw = await callLLM(utilityEndpoint, prompt, {
+        const raw = await llmCall(utilityEndpoint, prompt, {
             temperature: 0.2,
             priority: 'high',
             maxTokens: 200,

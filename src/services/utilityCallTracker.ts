@@ -26,6 +26,7 @@ const listeners = new Set<() => void>();
 const deadlineWaiters = new Map<string, Set<() => void>>();
 
 function emit() {
+    snapshotRef = { active, history };
     for (const l of listeners) l();
 }
 
@@ -166,9 +167,8 @@ export function getCallHistory(): UtilityCallRecord[] {
 export function extendCall(id: string, ms = 60000) {
     const cur = active.find(c => c.id === id);
     if (!cur) return;
-    cur.deadline = cur.deadline + ms;
-    cur.extensions += 1;
-    active = active.map(c => (c.id === id ? { ...cur } : c));
+    const updated = { ...cur, deadline: cur.deadline + ms, extensions: cur.extensions + 1 };
+    active = active.map(c => (c.id === id ? updated : c));
     emit();
     notifyDeadline(id);
 }
@@ -200,6 +200,3 @@ let snapshotRef: { active: UtilityCallRecord[]; history: UtilityCallRecord[] } =
     active,
     history,
 };
-listeners.add(() => {
-    snapshotRef = { active, history };
-});

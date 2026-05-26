@@ -405,6 +405,7 @@ export type RuleChunkMeta = {
     secondaryKeywords?: string[];
     priority?: number;
     keywordsUserEdited?: boolean;
+    activationModesUserEdited?: boolean;
     hasEmbedding?: boolean;
     modelId?: string;
     version?: number;

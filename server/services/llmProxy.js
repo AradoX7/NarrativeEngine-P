@@ -42,9 +42,9 @@ export function clampImportance(val) {
  * Shared fetch-retry helper.
  * Returns the raw matched JSON string from the response, or null on failure.
  */
-export async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs = 6000, jsonPattern = /\{[\s\S]*\}/ } = {}) {
+export async function callLLMWithRetry(prompt, config, { maxAttempts = 1, timeoutMs = 6000, jsonPattern = /\{[\s\S]*\}/ } = {}) {
     let attempts = 0;
-    while (attempts < retries) {
+    while (attempts < maxAttempts) {
         let timer;
         try {
             const controller = new AbortController();
@@ -67,7 +67,9 @@ export async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs 
 
             if (!response.ok) {
                 console.warn(`[LLM] attempt ${attempts + 1} HTTP ${response.status}`);
+                const backoff = Math.min(250 * Math.pow(2, attempts), 4000);
                 attempts++;
+                if (attempts < maxAttempts) await new Promise(r => setTimeout(r, backoff));
                 continue;
             }
 
@@ -77,14 +79,18 @@ export async function callLLMWithRetry(prompt, config, { retries = 1, timeoutMs 
             const jsonMatch = content.match(jsonPattern);
             if (!jsonMatch) {
                 console.warn(`[LLM] attempt ${attempts + 1} regex miss. Content (first 400): ${content.slice(0, 400)}`);
+                const backoff = Math.min(250 * Math.pow(2, attempts), 4000);
                 attempts++;
+                if (attempts < maxAttempts) await new Promise(r => setTimeout(r, backoff));
                 continue;
             }
 
             return jsonMatch[0];
         } catch (err) {
             console.warn(`[LLM] attempt ${attempts + 1} failed:`, err.message);
+            const backoff = Math.min(250 * Math.pow(2, attempts), 4000);
             attempts++;
+            if (attempts < maxAttempts) await new Promise(r => setTimeout(r, backoff));
         } finally {
             if (timer) clearTimeout(timer);
         }
@@ -111,7 +117,7 @@ Respond ONLY with valid JSON:
 }`;
 
     const raw = await callLLMWithRetry(prompt, utilityConfig, {
-        retries: 1,
+        maxAttempts: 1,
         timeoutMs: 5000,
         jsonPattern: /\{[\s\S]*\}/,
     });
@@ -157,7 +163,7 @@ Respond ONLY with a JSON array:
 If no state changes, return: []`;
 
     const raw = await callLLMWithRetry(prompt, utilityConfig, {
-        retries: 2,
+        maxAttempts: 2,
         timeoutMs: 6000,
         jsonPattern: /\[[\s\S]*\]/,
     });

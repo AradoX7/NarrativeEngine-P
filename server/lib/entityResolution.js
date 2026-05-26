@@ -1,6 +1,10 @@
 /**
  * Entity resolution utilities extracted from server.js.
  * Pure functions — no filesystem access, no external dependencies.
+ *
+ * NOTE: This is intentionally a separate copy from src/utils/entityResolution.ts.
+ * The server runs as plain JS (no bundler), so we can't import the TS module directly.
+ * Keep both implementations in sync when making changes.
  */
 
 export function levenshtein(a, b) {

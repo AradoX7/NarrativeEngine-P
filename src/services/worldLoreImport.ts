@@ -1,4 +1,4 @@
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { useAppStore } from '../store/useAppStore';
 import { AuxNotConfiguredError } from './worldLoreAI';
 
@@ -82,7 +82,7 @@ export async function classifyPastedLore(text: string): Promise<ClassifiedChunk[
     if (!endpoint || !endpoint.endpoint) throw new AuxNotConfiguredError();
 
     const prompt = `${CLASSIFY_PROMPT}\n\n---\n\n${text}`;
-    const raw = await callLLM(endpoint, prompt, { temperature: 0.3, priority: 'low' });
+    const raw = await llmCall(endpoint, prompt, { temperature: 0.3, priority: 'low' });
 
     const jsonStr = extractJSONArray(raw);
     if (!jsonStr) {

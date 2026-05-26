@@ -109,16 +109,18 @@ export async function enrichLoreKeywords(
         }
     }
 
-    // Apply enriched keywords back to the full chunks array
+    // Apply enriched keywords — create new objects to avoid in-place mutation
     let enrichedCount = 0;
-    for (const chunk of chunks) {
-        const entry = enrichedMap.get(chunk.id);
+    for (let i = 0; i < chunks.length; i++) {
+        const entry = enrichedMap.get(chunks[i].id);
         if (entry) {
-            // REPLACE triggerKeywords with LLM primary set (do not merge stale old keywords)
-            chunk.triggerKeywords = capKeywords(entry.primary);
-            chunk.secondaryKeywords = capKeywords(entry.secondary);
-            chunk.keywordsEnriched = true;
-            chunk.enrichedVersion = ENRICHER_VERSION;
+            chunks[i] = {
+                ...chunks[i],
+                triggerKeywords: capKeywords(entry.primary),
+                secondaryKeywords: capKeywords(entry.secondary),
+                keywordsEnriched: true,
+                enrichedVersion: ENRICHER_VERSION,
+            };
             enrichedCount++;
         }
     }

@@ -80,7 +80,7 @@ anchors: named locations that appear as markers on the map, max 8.`;
             apiKey: llmConfig.apiKey || '',
             model: llmConfig.model,
         }, {
-            retries: 2,
+            maxAttempts: 2,
             timeoutMs: 120000,
             jsonPattern: /\{[\s\S]*\}/,
         });

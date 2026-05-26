@@ -1,5 +1,5 @@
 import type { EndpointConfig } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 
 export type RerankCandidate = {
     id: string;
@@ -32,7 +32,7 @@ ${capped.map(c => `${c.id}: ${c.summary}`).join('\n')}
 Return ONLY a JSON array of the candidate ids most relevant to the query, in descending order of relevance. Max ${topN} ids. No prose, no markdown.`;
 
     try {
-        const raw = await callLLM(utilityEndpoint, prompt, {
+        const raw = await llmCall(utilityEndpoint, prompt, {
             temperature: 0.1,
             priority: 'high',
             maxTokens: 500,

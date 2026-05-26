@@ -3,6 +3,15 @@ import { useAppStore } from '../store/useAppStore';
 import { indexRules, computeRulesThreshold } from '../services/rulesIndexer';
 import { countTokens } from '../services/tokenizer';
 
+function fnv1a(str: string): number {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+}
+
 export function useRulesIndexer() {
     const rulesRaw = useAppStore((s) => s.context.rulesRaw);
     const rulesChunkMeta = useAppStore((s) => s.context.rulesChunkMeta);
@@ -26,7 +35,7 @@ export function useRulesIndexer() {
         const tokenCount = countTokens(rulesRaw);
         if (tokenCount <= threshold) return;
 
-        const hash = `${rulesRaw.length}_${tokenCount}_${rulesRaw.slice(0, 200)}`;
+        const hash = `${rulesRaw.length}_${tokenCount}_${fnv1a(rulesRaw)}`;
         if (hash === lastIndexedHash.current) return;
 
         indexingRef.current = true;

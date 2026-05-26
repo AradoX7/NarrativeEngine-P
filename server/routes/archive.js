@@ -389,11 +389,11 @@ export function createArchiveRouter() {
             });
         } else {
             // Standalone development mode fallback
-            const cmd = process.platform === 'win32' ? 'start ""'
-                : process.platform === 'darwin' ? 'open' : 'xdg-open';
+            const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+            const args = process.platform === 'win32' ? ['/c', 'start', '""', fp] : [fp];
 
-            import('child_process').then(({ exec }) => {
-                exec(`${cmd} "${fp}"`, (err) => {
+            import('child_process').then(({ execFile }) => {
+                execFile(cmd, args, (err) => {
                     if (err) return res.status(500).json({ error: 'Failed to open archive' });
                     res.json({ ok: true });
                 });

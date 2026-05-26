@@ -1,5 +1,5 @@
 import type { ChatMessage, ProviderConfig, EndpointConfig } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 
 const IMPORTANCE_PROMPT = `Rate the narrative importance of the scene below on a 1-5 scale.
 
@@ -38,7 +38,7 @@ export async function rateImportance(
         .replace('{gmText}', gmText.slice(0, 1200));
 
     try {
-        const raw = await callLLM(provider, prompt, { priority: 'low' });
+        const raw = await llmCall(provider, prompt, { priority: 'low' });
         const match = raw.trim().match(/\b([1-5])\b/);
         if (match) return parseInt(match[1], 10);
     } catch (err) {
