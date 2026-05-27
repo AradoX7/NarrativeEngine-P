@@ -128,6 +128,39 @@ function classifyCategory(header: string, content: string, parentHeader?: string
     return 'misc';
 }
 
+type RagHint = {
+    mode: 'always' | 'keyword' | 'vector';
+    priority?: number;
+    triggers: string[];
+    secondary: string[];
+};
+
+function parseRagHint(line: string): RagHint | null {
+    const match = line.match(/<!--\s*rag:\s*(.+?)\s*-->/i);
+    if (!match) return null;
+    const body = match[1].trim();
+
+    const modeMatch = body.match(/^(always|keyword|vector)/i);
+    if (!modeMatch) return null;
+    const mode = modeMatch[1].toLowerCase() as 'always' | 'keyword' | 'vector';
+
+    const priorityMatch = body.match(/priority:\s*(\d+)/i);
+    const priority = priorityMatch ? parseInt(priorityMatch[1], 10) : undefined;
+
+    // Capture triggers: everything from "triggers:" up to the next named param or end (allowing optional comma)
+    const triggersMatch = body.match(/triggers:\s*(.+?)(?=\s*,?\s*(?:priority|secondary)\s*:|$)/i);
+    const triggers = triggersMatch
+        ? triggersMatch[1].split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+
+    const secondaryMatch = body.match(/secondary:\s*(.+?)(?=\s*,?\s*priority\s*:|$)/i);
+    const secondary = secondaryMatch
+        ? secondaryMatch[1].split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+
+    return { mode, priority, triggers, secondary };
+}
+
 function generateSummary(_header: string, content: string): string | undefined {
     const lines = content.split('\n');
     for (const line of lines) {
@@ -194,14 +227,28 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
     let preambleLines: string[] = [];
 
     const flushChunk = () => {
-        const content = currentLines.join('\n').trim();
+        // Strip leading blank lines, then check first line for <!-- rag: --> hint
+        const trimmedLines = [...currentLines];
+        while (trimmedLines.length > 0 && trimmedLines[0].trim() === '') trimmedLines.shift();
+
+        let ragHint: RagHint | null = null;
+        if (trimmedLines.length > 0) {
+            ragHint = parseRagHint(trimmedLines[0].trim());
+            if (ragHint) trimmedLines.shift(); // strip the hint line — AI never sees it
+        }
+
+        const content = trimmedLines.join('\n').trim();
         if (content && currentHeader) {
             const baseId = slugify(currentHeader);
             const id = getUniqueId(baseId);
-            const alwaysInclude = shouldAlwaysInclude(currentHeader);
+
+            // Hint takes precedence over heuristics when present
+            const alwaysInclude = ragHint
+                ? ragHint.mode === 'always'
+                : shouldAlwaysInclude(currentHeader);
+
             const category = classifyCategory(currentHeader, content, parentHeader);
-            const priority = assignPriority(category, alwaysInclude);
-            
+
             // Extract Rag metadata blocks if any overrides exist
             let finalScanDepth = 3;
             if (content.includes('**scan_depth:**')) {
@@ -214,6 +261,13 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 /\*\*NSFWProfile:\*\*[\s\S]*?(?=\n\*\*[A-Z]|\n#{1,3}\s|$)/i,
                 ''
             ).trim();
+            const priority = ragHint?.priority ?? assignPriority(category, alwaysInclude);
+
+            // If hint provides triggers, prepend them to auto-extracted keywords
+            const autoKeywords = extractTriggerKeywords(currentHeader, content);
+            const triggerKeywords = ragHint?.triggers.length
+                ? [...new Set([...ragHint.triggers, ...autoKeywords])]
+                : autoKeywords;
 
             chunks.push({
                 id,
@@ -221,13 +275,15 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 content: sanitizedContent,
                 tokens: countTokens(currentHeader + '\n' + content),
                 alwaysInclude,
-                triggerKeywords: extractTriggerKeywords(currentHeader, content),
+                triggerKeywords,
+                secondaryKeywords: ragHint?.secondary.length ? ragHint.secondary : undefined,
                 scanDepth: finalScanDepth,
                 category,
                 linkedEntities: [], // Populated post-processing
                 parentSection: parentHeader || undefined,
                 priority,
-                summary: generateSummary(currentHeader, content)
+                summary: generateSummary(currentHeader, content),
+                ragMode: ragHint?.mode,
             });
         }
     };

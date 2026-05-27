@@ -1,4 +1,4 @@
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { useAppStore } from '../store/useAppStore';
 
 export class AuxNotConfiguredError extends Error {
@@ -21,11 +21,11 @@ const EXPAND_SYSTEM_PREFIX = `You are a creative writing assistant for a tableto
 export async function formatLoreText(text: string, category: string): Promise<string> {
     const endpoint = getEndpointOrThrow();
     const prompt = `${FORMAT_SYSTEM_PREFIX.replace('{category}', category)}\n\n${text}`;
-    return callLLM(endpoint, prompt, { temperature: 0.4, priority: 'low' });
+    return llmCall(endpoint, prompt, { temperature: 0.4, priority: 'low' });
 }
 
 export async function expandLoreText(text: string, category: string): Promise<string> {
     const endpoint = getEndpointOrThrow();
     const prompt = `${EXPAND_SYSTEM_PREFIX.replace('{category}', category)}\n\n${text}`;
-    return callLLM(endpoint, prompt, { temperature: 0.7, priority: 'low' });
+    return llmCall(endpoint, prompt, { temperature: 0.7, priority: 'low' });
 }

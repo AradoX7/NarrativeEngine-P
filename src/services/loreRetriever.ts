@@ -80,7 +80,7 @@ export function retrieveRelevantLore(
     let usedTokens = 0;
 
     for (const chunk of chunks) {
-        if (chunk.alwaysInclude) {
+        if (chunk.alwaysInclude || chunk.ragMode === 'always') {
             results.push(chunk);
             includedSet.add(chunk.id);
             usedTokens += chunk.tokens;
@@ -105,16 +105,35 @@ export function retrieveRelevantLore(
     const scored: { chunk: LoreChunk; score: number }[] = [];
 
     for (const chunk of chunks) {
-        if (chunk.alwaysInclude) continue;
+        if (chunk.alwaysInclude || chunk.ragMode === 'always') continue;
 
         const isSemantic = semanticSet.has(chunk.id);
         const keywords = chunk.triggerKeywords || [];
         const depth = chunk.scanDepth || defaultDepth;
         const scanText = getScanText(depth);
 
-        const kwHits = countKeywordHits(keywords, scanText);
+        // RAG Mode vector: skip keyword scoring phase
+        const skipKeyword = chunk.ragMode === 'vector';
+        const kwHits = skipKeyword ? 0 : countKeywordHits(keywords, scanText);
 
-        if (isSemantic) {
+        // Strict secondary keyword AND-gate filtering
+        if (kwHits > 0) {
+            const secondaryKws = chunk.secondaryKeywords || [];
+            if (secondaryKws.length > 0) {
+                const secondaryMatch = secondaryKws.some(kw => {
+                    const regex = getKeywordRegex(kw);
+                    regex.lastIndex = 0;
+                    return regex.test(scanText);
+                });
+                if (!secondaryMatch) continue; // AND-gate not satisfied — skip keyword match
+            }
+        }
+
+        // RAG Mode keyword: skip semantic boost phase
+        const skipSemantic = chunk.ragMode === 'keyword';
+        const isSemanticHit = isSemantic && !skipSemantic;
+
+        if (isSemanticHit) {
             let score = 15;
             score += kwHits * 10;
             score += (chunk.priority || 5);

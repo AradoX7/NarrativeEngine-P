@@ -12,14 +12,15 @@ import { GenerationProgress } from './GenerationProgress';
 import { useCondenser } from './hooks/useCondenser';
 import { useChapterSealing } from './hooks/useChapterSealing';
 import { useMessageEditor } from './hooks/useMessageEditor';
-import type { ChatMessage, DivergenceRegister, EndpointConfig } from '../types';
-
+import { UtilityCallStrip } from './UtilityCallStrip';
+import { CreateTroubleButton } from './CreateTroubleButton';
 
 export function ChatArea() {
     const messages = useAppStore(s => s.messages);
     const condenser = useAppStore(s => s.condenser);
     const context = useAppStore(s => s.context);
     const activeCampaignId = useAppStore(s => s.activeCampaignId);
+    const activeProvider = useAppStore(s => s.getActiveStoryEndpoint?.());
 
     const { settings, loreChunks, npcLedger, archiveIndex, chapters } = useAppStore(
         useShallow(s => ({
@@ -34,7 +35,7 @@ export function ChatArea() {
     const {
         setArchiveIndex, clearArchive, updateLastAssistant, updateContext,
         setCondensed, deleteMessage, deleteMessagesFrom,
-        resetCondenser, setTimeline, setChapters,
+        setTimeline, setChapters,
         pipelinePhase, streamingStats, setPipelinePhase, setStreamingStats,
     } = useAppStore(
         useShallow(s => ({
@@ -45,7 +46,6 @@ export function ChatArea() {
             setCondensed: s.setCondensed,
             deleteMessage: s.deleteMessage,
             deleteMessagesFrom: s.deleteMessagesFrom,
-            resetCondenser: s.resetCondenser,
             setTimeline: s.setTimeline,
             setChapters: s.setChapters,
             pipelinePhase: s.pipelinePhase,
@@ -55,7 +55,6 @@ export function ChatArea() {
         }))
     );
 
-    const divergenceRegister = useAppStore(s => s.divergenceRegister);
 
     const [input, setInput] = useState('');
     const [isStreaming, setStreaming] = useState(false);
@@ -66,6 +65,16 @@ export function ChatArea() {
     const [isSaving, setIsSaving] = useState(false);
     const deepArmed = useAppStore(s => s.deepArmed);
     const setDeepArmed = useAppStore(s => s.setDeepArmed);
+    const composerInjection = useAppStore(s => s.composerInjection);
+    const consumeComposerInjection = useAppStore(s => s.consumeComposerInjection);
+
+    useEffect(() => {
+        if (composerInjection != null) {
+            setInput(composerInjection);
+            consumeComposerInjection();
+            inputRef.current?.focus();
+        }
+    }, [composerInjection, consumeComposerInjection]);
     const bottomRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -184,6 +193,8 @@ export function ChatArea() {
             setLastPayloadTrace: storeSnapshot.setLastPayloadTrace,
             setDivergenceRegister: storeSnapshot.setDivergenceRegister,
             setOnStageNpcIds: storeSnapshot.setOnStageNpcIds,
+            archiveNPC: storeSnapshot.archiveNPC,
+            restoreNPC: storeSnapshot.restoreNPC,
         }, abortControllerRef.current);
 
         if (activeCampaignId) {
@@ -338,6 +349,7 @@ export function ChatArea() {
                     />
                 ))}
 
+                <UtilityCallStrip />
                 <GenerationProgress phase={pipelinePhase} stats={streamingStats} />
 
                 {loadingStatus && pipelinePhase === 'idle' && (
@@ -380,6 +392,9 @@ export function ChatArea() {
                         <span className="hidden xs:inline">{deepArmed ? 'DEEP SEARCH ARMED' : 'Deep Search'}</span>
                         <span className="inline xs:hidden">{deepArmed ? 'ARMED' : 'Deep'}</span>
                     </button>
+                )}
+                {activeCampaignId && (
+                    <CreateTroubleButton provider={activeProvider} />
                 )}
                 <button
                     onClick={handleOpenArchive}

@@ -27,6 +27,8 @@ export type TurnCallbacks = {
     setPipelinePhase?: (phase: PipelinePhase) => void;
     setDivergenceRegister?: (register: DivergenceRegister) => void;
     setOnStageNpcIds?: (ids: string[]) => void;
+    archiveNPC: (id: string, turn: number, reason: string) => void;
+    restoreNPC: (id: string) => void;
 };
 
 export type TurnState = {
@@ -71,6 +73,15 @@ export async function runTurn(
 
     if (!provider) return;
 
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const abortListener = () => {
+        if (retryTimer) {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+        }
+    };
+    abortController.signal.addEventListener('abort', abortListener);
+
     let finalInput = input;
     callbacks.setPipelinePhase?.('rolling-dice');
     const engineResult = rollEngines(context);
@@ -94,7 +105,7 @@ export async function runTurn(
 
     // ─── Context Gathering (parallel: archive, timeline, recommender, lore, pinned chapters) ───
     const {
-        sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore, inventoryCategories, profileFields, deepContextSummary, semanticFactText,
+        sceneNumber, archiveRecall, recommendedNPCNames, timelineEvents, relevantLore, inventoryCategories, profileFields, deepContextSummary, semanticFactText, relevantRules, rulesManifest,
     } = await gatherContext(state, finalInput, {
         chapters: state.chapters,
         pinnedChapterIds: state.pinnedChapterIds,
@@ -103,7 +114,32 @@ export async function runTurn(
         setLoadingStatus: callbacks.setLoadingStatus,
     }, abortController.signal);
 
-    if (abortController.signal.aborted) return;
+    if (abortController.signal.aborted) {
+        abortController.signal.removeEventListener('abort', abortListener);
+        return;
+    }
+
+    if (context.npcIntroEngineActive) {
+        const seenNpcNames = new Set((npcLedger ?? []).map((n: NPCEntry) => n.name.toLowerCase()));
+        try {
+            const auxProvider = useAppStore.getState().getActiveAuxiliaryEndpoint() ?? provider;
+            const { rollCharacterIntroEngine } = await import('./charIntroEngine');
+            const introResult = await rollCharacterIntroEngine(
+                context,
+                seenNpcNames,
+                messages,
+                auxProvider
+            );
+            if (introResult.tag) {
+                finalInput = finalInput + '\n' + introResult.tag;
+            }
+            if (introResult.newDC !== context.npcIntroDC) {
+                callbacks.updateContext({ npcIntroDC: introResult.newDC });
+            }
+        } catch (err) {
+            console.warn('[CharIntroEngine] Failed to run intro engine:', err);
+        }
+    }
 
     callbacks.setPipelinePhase?.('building-prompt');
     callbacks.setLoadingStatus?.('Architecting AI Prompt...');
@@ -127,6 +163,8 @@ export async function runTurn(
         state.divergenceRegister,
         state.chapters,
         state.onStageNpcIds,
+        relevantRules,
+        rulesManifest,
     );
 
     const payload = payloadResult.messages;
@@ -220,7 +258,9 @@ export async function runTurn(
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
-                    setTimeout(() => {
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (abortController.signal.aborted) return;
                         callbacks.onCheckingNotes(false);
                         callbacks.setPipelinePhase?.('generating');
                         executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
@@ -272,7 +312,9 @@ export async function runTurn(
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
-                    setTimeout(() => {
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (abortController.signal.aborted) return;
                         executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
                     }, 800);
                     return;
@@ -323,7 +365,9 @@ export async function runTurn(
                         tool_call_id: toolCall.id
                     } as unknown as import('./chatEngine').OpenAIMessage);
 
-                    setTimeout(() => {
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (abortController.signal.aborted) return;
                         executeTurn(currentPayload, toolCallCount + 1, 0, assistantMsgId);
                     }, 800);
                     return;
@@ -376,6 +420,7 @@ export async function runTurn(
                 }
 
                 callbacks.setPipelinePhase?.('idle');
+                abortController.signal.removeEventListener('abort', abortListener);
             },
             (err) => {
                 const isUserAbort = abortController.signal.aborted
@@ -388,6 +433,7 @@ export async function runTurn(
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
                     callbacks.setPipelinePhase?.('idle');
+                    abortController.signal.removeEventListener('abort', abortListener);
                     return;
                 }
 
@@ -398,13 +444,21 @@ export async function runTurn(
                         callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying...`);
                     }
                     toast.warning('LLM request failed — retrying...');
-                    setTimeout(() => executeTurn(currentPayload, toolCallCount, 1, assistantMsgId), 2000);
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (abortController.signal.aborted) return;
+                        executeTurn(currentPayload, toolCallCount, 1, assistantMsgId);
+                    }, 2000);
                 } else if (apiRetryCount === 1) {
                     if (!currentAssistantContent) {
                         callbacks.updateLastAssistant(`⚠️ Error: ${err}. Retrying without tools...`);
                     }
                     toast.warning('Retry failed — trying without tools...');
-                    setTimeout(() => executeTurn(currentPayload, 999, 2, assistantMsgId), 4000);
+                    retryTimer = setTimeout(() => {
+                        retryTimer = null;
+                        if (abortController.signal.aborted) return;
+                        executeTurn(currentPayload, 999, 2, assistantMsgId);
+                    }, 4000);
                 } else {
                     if (!currentAssistantContent) {
                         callbacks.updateLastAssistant(`⚠️ Error: ${err}`);
@@ -414,6 +468,7 @@ export async function runTurn(
                     callbacks.onCheckingNotes(false);
                     callbacks.setLoadingStatus?.(null);
                     callbacks.setPipelinePhase?.('idle');
+                    abortController.signal.removeEventListener('abort', abortListener);
                 }
             },
             tools ? [...tools] : undefined,

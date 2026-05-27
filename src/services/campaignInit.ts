@@ -44,6 +44,21 @@ export async function initializeCampaignState(params: {
         const loreText = await loreFile.text();
         const chunks = chunkLoreFile(loreText);
         await saveLoreChunks(campaignId, chunks);
+
+        // Non-blocking LLM keyword enrichment — fire and forget
+        try {
+            const { useAppStore } = await import('../store/useAppStore');
+            const utilityEndpointForEnrichment = useAppStore.getState().getActiveUtilityEndpoint();
+            if (utilityEndpointForEnrichment?.endpoint) {
+                import('./loreKeywordEnricher').then(({ enrichLoreKeywords }) => {
+                    enrichLoreKeywords(campaignId, chunks, utilityEndpointForEnrichment)
+                        .catch(err => console.warn('[LoreEnricher] Background enrichment failed:', err));
+                }).catch(() => {});
+            }
+        } catch (err) {
+            console.warn('[LoreEnricher] Failed to queue enrichment:', err);
+        }
+
         const parsedNPCs = parseNPCsFromLore(chunks);
         if (parsedNPCs.length > 0) {
             const existingNPCs = await getNPCLedger(campaignId);

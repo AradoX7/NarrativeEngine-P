@@ -1,6 +1,18 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+let shell = null;
+if (process.versions.electron) {
+    try {
+        const electron = require('electron');
+        shell = electron.shell;
+    } catch (e) {
+        console.warn('[Archive] Could not load Electron shell:', e);
+    }
+}
 import {
     readJson, writeJson, ensureDirs,
     archivePath, archiveIndexPath, chaptersPath, entitiesPath, timelinePath,
@@ -210,6 +222,45 @@ export function createArchiveRouter() {
         res.json(entries);
     }));
 
+    // Patch witness data on specific scenes (applied after seal audit corrections)
+    router.patch('/api/campaigns/:id/archive/witnesses', wrapAsync((req, res) => {
+        const { patches } = req.body;
+        if (!Array.isArray(patches)) {
+            return res.status(400).json({ error: 'patches must be an array' });
+        }
+        const idxp = archiveIndexPath(req.params.id);
+        const entries = readJson(idxp, []);
+        for (const patch of patches) {
+            if (!patch.sceneId || !Array.isArray(patch.witnesses)) continue;
+            const entry = entries.find(e => e.sceneId === patch.sceneId);
+            if (entry) {
+                entry.witnesses = patch.witnesses;
+                entry.witnessSource = patch.witnessSource || 'seal_correction';
+            }
+        }
+        writeJson(idxp, entries);
+        res.json({ updated: patches.length });
+    }));
+
+    // Patch event data on specific scenes
+    router.patch('/api/campaigns/:id/archive/events', wrapAsync((req, res) => {
+        const { patches } = req.body;
+        if (!Array.isArray(patches)) {
+            return res.status(400).json({ error: 'patches must be an array' });
+        }
+        const idxp = archiveIndexPath(req.params.id);
+        const entries = readJson(idxp, []);
+        for (const patch of patches) {
+            if (!patch.sceneId || !Array.isArray(patch.events)) continue;
+            const entry = entries.find(e => e.sceneId === patch.sceneId);
+            if (entry) {
+                entry.events = patch.events;
+            }
+        }
+        writeJson(idxp, entries);
+        res.json({ updated: patches.length });
+    }));
+
     // Fetch full verbatim scenes by comma-separated scene IDs
     router.get('/api/campaigns/:id/archive/scenes', wrapAsync((req, res) => {
         const fp = archivePath(req.params.id);
@@ -324,16 +375,30 @@ export function createArchiveRouter() {
         if (!fs.existsSync(fp)) {
             return res.status(404).json({ error: 'No archive yet' });
         }
-        // Windows: start; macOS: open; Linux: xdg-open
-        const cmd = process.platform === 'win32' ? 'start ""'
-            : process.platform === 'darwin' ? 'open' : 'xdg-open';
 
-        import('child_process').then(({ exec }) => {
-            exec(`${cmd} "${fp}"`, (err) => {
-                if (err) return res.status(500).json({ error: 'Failed to open archive' });
+        if (shell) {
+            shell.openPath(fp).then(errorMsg => {
+                if (errorMsg) {
+                    console.error('[Archive] shell.openPath failed:', errorMsg);
+                    return res.status(500).json({ error: `Failed to open archive: ${errorMsg}` });
+                }
                 res.json({ ok: true });
+            }).catch(err => {
+                console.error('[Archive] shell.openPath rejected:', err);
+                res.status(500).json({ error: 'Failed to open archive' });
             });
-        });
+        } else {
+            // Standalone development mode fallback
+            const cmd = process.platform === 'win32' ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+            const args = process.platform === 'win32' ? ['/c', 'start', '""', fp] : [fp];
+
+            import('child_process').then(({ execFile }) => {
+                execFile(cmd, args, (err) => {
+                    if (err) return res.status(500).json({ error: 'Failed to open archive' });
+                    res.json({ ok: true });
+                });
+            });
+        }
     }));
 
     router.post('/api/campaigns/:id/archive/semantic-candidates', wrapAsync(async (req, res) => {

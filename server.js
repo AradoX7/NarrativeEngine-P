@@ -14,6 +14,7 @@ import { createAssetsRouter } from './server/routes/assets.js';
 import { createOverworldRouter } from './server/routes/overworld.js';
 import { createTransferRouter } from './server/routes/transfer.js';
 import { createDivergenceRouter } from './server/routes/divergence.js';
+import { createRulesRouter } from './server/routes/rules.js';
 import { initDb } from './server/lib/vectorStore.js';
 import { warmup as warmupEmbedder } from './server/lib/embedder.js';
 
@@ -66,6 +67,7 @@ app.use(createAssetsRouter());
 app.use(createOverworldRouter());
 app.use(createTransferRouter());
 app.use(createDivergenceRouter());
+app.use(createRulesRouter());
 
 // ─── Central Error Handler ───
 app.use((err, _req, res, _next) => {
@@ -75,7 +77,7 @@ app.use((err, _req, res, _next) => {
 });
 
 // ─── Start ───
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
     console.log(`[GM-Cockpit API] ✓ Running on http://localhost:${PORT}`);
     console.log(`[GM-Cockpit API]   Data dir: ${DATA_DIR}`);
 });

@@ -9,7 +9,7 @@
  */
 
 import type { EndpointConfig, NPCEntry, LoreChunk, ChatMessage, ArchiveChapter, InventoryItem, CharacterProfile, InventoryItemCategory } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { buildInventoryIndex, buildProfileIndex } from './contextMinifier';
 
 export type RecommenderResult = {
@@ -124,7 +124,7 @@ export async function recommendContext(
     console.log(`[ContextRecommender] Sending recommendation request to ${utilityEndpoint.modelName}...`);
 
     // High priority — story AI cannot start until this returns
-    const rawContent = await callLLM(utilityEndpoint, userContent, {
+    const rawContent = await llmCall(utilityEndpoint, userContent, {
         temperature: 0.1, // Low temperature for consistent structured output
         signal,
         priority: 'high',

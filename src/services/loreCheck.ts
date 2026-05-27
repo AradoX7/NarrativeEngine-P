@@ -9,7 +9,7 @@ import type {
     LoreCheckVerdict,
     LoreCheckCategory,
 } from '../types';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { searchLoreByQuery } from './loreRetriever';
 import { deepArchiveScan } from './deepArchiveSearch';
 
@@ -88,7 +88,7 @@ export async function runLoreCheck(input: LoreCheckInput): Promise<LoreCheckResu
         categories,
     });
 
-    const raw = await callLLM(utilityEndpoint, prompt, {
+    const raw = await llmCall(utilityEndpoint, prompt, {
         temperature: 0.1,
         maxTokens: 800,
         priority: 'high',

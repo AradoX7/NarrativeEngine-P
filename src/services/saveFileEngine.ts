@@ -1,7 +1,7 @@
-import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, ArchiveChapter, DivergenceEntry, NPCEntry } from '../types';
+import type { ChatMessage, GameContext, ProviderConfig, EndpointConfig, ArchiveChapter, DivergenceEntry, SceneEvent, SceneEventType } from '../types';
 import { countTokens } from './tokenizer';
 import { extractJson } from './payloadBuilder';
-import { callLLM } from './callLLM';
+import { llmCall } from '../utils/llmCall';
 import { DIVERGENCE_CATEGORIES, CATEGORY_DEFINITIONS, coerceCategory } from './divergenceRegister';
 import { uid } from '../utils/uid';
 
@@ -207,7 +207,7 @@ export async function generateHeaderIndex(
                 promptTokens: countTokens(prompt)
             });
 
-            const output = await callLLM(provider, prompt, { priority: 'low' });
+const output = await llmCall(provider, prompt, { priority: 'low' });
             const { valid } = validateHeaderIndex(output);
 
             if (valid) {
@@ -376,7 +376,7 @@ export async function generateChapterSummary(
             promptTokens: countTokens(prompt)
         });
 
-        const output = await callLLM(provider, prompt, { priority: 'low' });
+        const output = await llmCall(provider, prompt, { priority: 'low' });
         const result = parseChapterSummaryOutput(output);
 
         if (result) {
@@ -396,13 +396,17 @@ export type CombinedSealResult = {
     summary: ChapterSummaryOutput | null;
     divergences: DivergenceEntry[];
     divergenceParseError?: boolean;
+    witnessCorrections?: Record<string, string[]>;
+    sceneEventMap?: Record<string, SceneEvent[]>;
+    sceneEventsParseError?: boolean;
 };
 
 function buildCombinedSealPrompt(
     scenes: { sceneId: string; content: string }[],
     chapterTitle: string,
     sceneIds: string[],
-    npcLedger: { id: string; name: string; aliases: string }[]
+    npcLedger: { id: string; name: string; aliases: string }[],
+    indexEntries?: { sceneId: string; witnesses?: string[] }[]
 ): string {
     const truncated = truncateScenesToBudget(scenes, COMBINED_SEAL_TOKEN_BUDGET);
     const sceneContent = truncated.map(s => `--- SCENE ${s.sceneId} ---\n${s.content}`).join('\n\n');
@@ -415,10 +419,33 @@ function buildCombinedSealPrompt(
         `### ${c.toUpperCase()}\nDefinition: ${CATEGORY_DEFINITIONS[c]}\nOutput: JSON array for this slot, or [] if empty.`
     ).join('\n\n');
 
-    return `You are a TTRPG campaign archivist. Perform TWO tasks in a single response:
+    let witnessAuditSection = '';
+    if (indexEntries && indexEntries.length > 0) {
+        const entriesWithWitness = indexEntries.filter(e => e.witnesses && e.witnesses.length > 0);
+        if (entriesWithWitness.length > 0) {
+            const rows = entriesWithWitness.map(e =>
+                `Scene ${e.sceneId}: ${(e.witnesses ?? []).join(', ') || '(none recorded)'}`
+            ).join('\n');
+            witnessAuditSection = `
+
+AUDIT — PER-SCENE NPC WITNESSES (pre-capture):
+The following per-scene witness data was captured during play. Review it for accuracy.
+If you find that a scene's witnesses are incorrect (NPCs listed who were NOT present, or NPCs present who are NOT listed),
+provide corrections in the "witness_corrections" field.
+
+${rows}`;
+        }
+    }
+
+    const outputKeys = witnessAuditSection 
+        ? '"summary", "divergences", "sceneEvents", and optionally "witness_corrections"'
+        : '"summary", "divergences", and "sceneEvents"';
+
+    return `You are a TTRPG campaign archivist. Perform THREE tasks in a single response:
 
 TASK 1 — Generate a structured chapter summary.
 TASK 2 — Extract established facts that would BREAK A FUTURE SCENE if the AI contradicted them.
+TASK 3 — Extract structured scene events for each scene.
 
 CHAPTER: "${chapterTitle || 'Untitled'}"
 SCENE IDs IN THIS CHAPTER: ${sceneIds.join(', ')}
@@ -428,8 +455,9 @@ ${npcList || '(no NPCs in ledger)'}
 
 SCENE CONTENT:
 ${sceneContent}
+${witnessAuditSection}
 
-OUTPUT FORMAT — a single JSON object with exactly two top-level keys: "summary" and "divergences".
+OUTPUT FORMAT — a single JSON object with the keys ${outputKeys}.
 
 The "summary" value must be this JSON shape:
 {
@@ -458,6 +486,39 @@ The "divergences" value must be an object with one key per category slot. Each v
     "misc": []
 }
 
+The "sceneEvents" value must be an object mapping scene IDs to arrays of structured event objects, or {} if no scenes had meaningful events. Example:
+{
+    "014": [
+        {
+            "eventType": "item_acquired",
+            "importance": 7,
+            "text": "Tav bought a leather chestpiece for 80gp",
+            "characters": ["Tav", "Astarion"],
+            "locations": ["Baldur's Gate"],
+            "items": ["leather chestpiece", "80gp"],
+            "concepts": ["trade"],
+            "cause": "Tav needed better armor before the next dungeon",
+            "result": "Tav now wears the leather chestpiece"
+        }
+    ],
+    "015": []
+}
+
+SCENE EVENT RULES:
+- eventType MUST be one of: combat, discovery, item_acquired, item_lost, relationship_shift, travel, promise, betrayal, death, revelation, quest_milestone, other
+- importance is 1-10
+- text is one short sentence describing what happened
+- characters/locations/items/concepts are optional arrays of canonical names (use NPC names from the ledger above when possible)
+- cause/result are short plain-text causal beats (one short clause each, optional)
+- Cap at MAXIMUM 3 events per scene. Skip scenes with nothing meaningful (use [] or omit the scene key).
+- Only include scenes from this chapter's scene IDs.
+
+${witnessAuditSection ? `
+WITNESS CORRECTIONS:
+If you found errors in the per-scene witness data above, include a "witness_corrections" key at the top level of the JSON:
+"witness_corrections": { "014": ["Aldric", "Borric"], "022": ["Morrigan"] }
+This maps scene IDs to the CORRECT list of NPC NAMES who were physically present in that scene. Only include scenes where you disagree with the pre-captured data.` : ''}
+
 Category definitions:
 
 ${divergenceSlots}
@@ -482,6 +543,26 @@ SUMMARY RULES:
 4. Unresolved threads are open plot hooks, promises, or mysteries
 5. Title should be 2-5 words, evocative
 6. Summary should read like a campaign journal entry, not a list`;
+}
+
+function extractWitnessCorrections(parsed: object): Record<string, string[]> | undefined {
+    const p = parsed as Record<string, unknown>;
+    const rawCorrections =
+        p['witness_corrections'] ??
+        ((p['divergences'] as Record<string, unknown> | undefined)?.['witness_corrections']);
+    if (rawCorrections && typeof rawCorrections === 'object' && !Array.isArray(rawCorrections)) {
+        const corrections: Record<string, string[]> = {};
+        for (const [sceneId, value] of Object.entries(rawCorrections as Record<string, unknown>)) {
+            if (Array.isArray(value) && value.every((v: unknown) => typeof v === 'string')) {
+                corrections[sceneId] = value as string[];
+            }
+        }
+        if (Object.keys(corrections).length > 0) {
+            console.log(`[CombinedSeal] Extracted witness corrections for ${Object.keys(corrections).length} scenes`);
+            return corrections;
+        }
+    }
+    return undefined;
 }
 
 export function parseCombinedSealOutput(
@@ -605,7 +686,52 @@ export function parseCombinedSealOutput(
         divergenceParseError = true;
     }
 
-    return { summary, divergences: entries, divergenceParseError: divergenceParseError || undefined };
+    const witnessCorrections = extractWitnessCorrections(parsed);
+
+    let sceneEventMap: Record<string, SceneEvent[]> | undefined;
+    let sceneEventsParseError: boolean | undefined;
+    try {
+        const rawSceneEvents = (parsed as Record<string, unknown>).sceneEvents;
+        if (rawSceneEvents !== undefined) {
+            if (typeof rawSceneEvents !== 'object' || rawSceneEvents === null || Array.isArray(rawSceneEvents)) {
+                throw new Error('sceneEvents is not an object');
+            }
+            const VALID_EVENT_TYPES = new Set<string>([
+                'combat', 'discovery', 'item_acquired', 'item_lost', 'relationship_shift',
+                'travel', 'promise', 'betrayal', 'death', 'revelation', 'quest_milestone', 'other',
+            ]);
+            const map: Record<string, SceneEvent[]> = {};
+            for (const [sceneId, eventsRaw] of Object.entries(rawSceneEvents as Record<string, unknown>)) {
+                if (!Array.isArray(eventsRaw)) continue;
+                const validEvents: SceneEvent[] = [];
+                for (const ev of eventsRaw) {
+                    if (!ev || typeof ev !== 'object') continue;
+                    const raw = ev as Record<string, unknown>;
+                    if (typeof raw.text !== 'string' || !raw.text.trim()) continue;
+                    if (typeof raw.importance !== 'number') continue;
+                    const eventType: SceneEventType = VALID_EVENT_TYPES.has(raw.eventType as string)
+                        ? (raw.eventType as SceneEventType)
+                        : 'other';
+                    const importance = Math.min(10, Math.max(1, Math.round(raw.importance as number)));
+                    const event: SceneEvent = { eventType, importance, text: (raw.text as string).trim() };
+                    if (Array.isArray(raw.characters) && raw.characters.length > 0) event.characters = raw.characters.filter((v: unknown): v is string => typeof v === 'string');
+                    if (Array.isArray(raw.locations) && raw.locations.length > 0) event.locations = raw.locations.filter((v: unknown): v is string => typeof v === 'string');
+                    if (Array.isArray(raw.items) && raw.items.length > 0) event.items = raw.items.filter((v: unknown): v is string => typeof v === 'string');
+                    if (Array.isArray(raw.concepts) && raw.concepts.length > 0) event.concepts = raw.concepts.filter((v: unknown): v is string => typeof v === 'string');
+                    if (typeof raw.cause === 'string' && raw.cause.trim()) event.cause = raw.cause.trim();
+                    if (typeof raw.result === 'string' && raw.result.trim()) event.result = raw.result.trim();
+                    validEvents.push(event);
+                }
+                map[sceneId] = validEvents;
+            }
+            sceneEventMap = map;
+        }
+    } catch (e) {
+        console.warn('[CombinedSeal] sceneEvents block present but unparseable — ignoring', e);
+        sceneEventsParseError = true;
+    }
+
+    return { summary, divergences: entries, divergenceParseError: divergenceParseError || undefined, witnessCorrections, sceneEventMap, sceneEventsParseError };
 }
 
 export async function sealChapterCombined(
@@ -616,10 +742,11 @@ export async function sealChapterCombined(
     sceneIds: string[],
     npcLedger: { id: string; name: string; aliases: string }[],
     maxRetries = 2,
-    scanBudget = 0
+    scanBudget = 0,
+    indexEntries?: { sceneId: string; witnesses?: string[] }[]
 ): Promise<CombinedSealResult> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger);
+        const prompt = buildCombinedSealPrompt(scenes, chapterTitle, sceneIds, npcLedger, indexEntries);
         const label = attempt === 0 ? '' : ' (retry)';
 
         console.log(`[CombinedSeal] Generating summary + divergences${label}...`, {
@@ -628,7 +755,7 @@ export async function sealChapterCombined(
             promptTokens: countTokens(prompt),
         });
 
-        const output = await callLLM(provider, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000 });
+        const output = await llmCall(provider, prompt, { priority: 'low', maxTokens: scanBudget > 0 ? scanBudget : 2000 });
         const result = parseCombinedSealOutput(output, chapterId, sceneIds, npcLedger);
 
         if (result.summary && !result.divergenceParseError) {

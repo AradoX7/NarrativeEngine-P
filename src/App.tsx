@@ -10,14 +10,17 @@ import { NPCLedgerModal } from './components/NPCLedgerModal';
 import { BackupModal } from './components/BackupModal';
 import { LoreCheckModal } from './components/LoreCheckModal';
 import { DivergenceReviewModal } from './components/DivergenceReviewModal';
+import { CreateTroubleModal } from './components/CreateTroubleModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { VaultUnlockModal } from './components/VaultUnlockModal';
-import { MapPanel } from './components/map/MapPanel';
+// import { MapPanel } from './components/map/MapPanel';
 import { hydrateCampaign } from './store/campaignHydrator';
+import { useRulesIndexer } from './hooks/useRulesIndexer';
 
 export default function App() {
   const activeCampaignId = useAppStore((s) => s.activeCampaignId);
+  useRulesIndexer();
   const settingsLoaded = useAppStore((s) => s.settingsLoaded);
   const loadSettings = useAppStore((s) => s.loadSettings);
   const vaultStatus = useAppStore((s) => s.vaultStatus);
@@ -136,12 +139,13 @@ export default function App() {
         <ContextDrawer />
         <ChatArea />
       </div>
-      <MapPanel />
+      {/* <MapPanel /> */}
       <SettingsModal />
       <NPCLedgerModal />
       <BackupModal />
       <LoreCheckModal />
       <DivergenceReviewModal />
+      <CreateTroubleModal />
       <ToastContainer />
     </ErrorBoundary>
   );

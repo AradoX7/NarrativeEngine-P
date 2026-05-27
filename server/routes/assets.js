@@ -2,15 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { PUBLIC_ASSETS_DIR } from '../lib/fileStore.js';
+import { wrapAsync } from '../lib/asyncHandler.js';
+import { serverError } from '../lib/serverError.js';
 
 export function createAssetsRouter() {
     const router = Router();
 
-    // ═══════════════════════════════════════════
-    //  Assets (NPC Portraits)
-    // ═══════════════════════════════════════════
-
-    router.post('/api/assets/download', async (req, res) => {
+    router.post('/api/assets/download', wrapAsync(async (req, res) => {
         const { url, filename: rawFilename } = req.body;
         if (!url || !rawFilename) return res.status(400).json({ error: 'Missing url or filename' });
 
@@ -21,7 +19,9 @@ export function createAssetsRouter() {
 
         try {
             const response = await fetch(url);
-            if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
+            if (!response.ok) {
+                return res.status(502).json({ error: `Upstream returned ${response.status}` });
+            }
 
             const arrayBuffer = await response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
@@ -33,14 +33,15 @@ export function createAssetsRouter() {
             }
             fs.writeFileSync(filePath, buffer);
 
-            // Return the relative path for the frontend (Vite serves /public at root)
             const relativePath = `/assets/portraits/${filename}`;
             res.json({ ok: true, path: relativePath });
         } catch (err) {
-            console.error('[Asset Download] Error:', err);
-            res.status(500).json({ error: 'Internal server error' });
+            if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+                return res.status(502).json({ error: `Failed to fetch asset: ${err.code}` });
+            }
+            serverError(res, err, 'Asset Download');
         }
-    });
+    }));
 
     return router;
 }
