@@ -436,6 +436,8 @@ export type NPCEntry = {
     personality: string;
     exampleOutput: string;
     affinity: number;
+    primary?: boolean;      // Primary NPC — skips field truncation in minifyNPC()
+    nsfwProfile?: string;   // Sexual/intimate behavioral traits — injected conditionally
     portrait?: string;
     previousSnapshot?: {
         personality: string;

@@ -3,6 +3,7 @@ import type { OpenAIMessage } from './llmService';
 import { countTokens } from './tokenizer';
 import { buildBehaviorDirective, buildDriftAlert, buildKnowledgeBoundary } from './npcBehaviorDirective';
 import { minifyLoreChunk, minifyNPC, minifyBookkeepingStub, minifySelectedInventory, minifySelectedProfile } from './contextMinifier';
+import { detectIntimacyContext } from './intimacyDetector';
 import { resolveTimeline, formatResolvedForContext } from './timelineResolver';
 import { DEFAULT_RULES } from './defaultRules';
 import { renderRegisterForPayload } from './divergenceRegister';
@@ -353,10 +354,11 @@ export function buildPayload(
             const scored = activeNPCs.map(npc => ({ npc, score: computeNPCSalience(npc, scanText) }));
             scored.sort((a, b) => b.score - a.score);
             const spotlitNpc = scored[0].npc;
+            const includeNSFW = detectIntimacyContext(history);
 
             const npcLines = activeNPCs.map(npc => {
                 const isSpotlit = npc.id === spotlitNpc.id;
-                let line = minifyNPC(npc);
+                let line = minifyNPC(npc, includeNSFW);
                 const directive = buildBehaviorDirective(npc);
                 if (directive) line += ` | ${directive}`;
 

@@ -209,10 +209,16 @@ export function chunkLoreFile(markdown: string): LoreChunk[] {
                 if (match) finalScanDepth = parseInt(match[1]) || 3;
             }
 
+            // Strip NSFWProfile block from lore chunk content — stored only in NPC ledger
+            const sanitizedContent = content.replace(
+                /\*\*NSFWProfile:\*\*[\s\S]*?(?=\n\*\*[A-Z]|\n#{1,3}\s|$)/i,
+                ''
+            ).trim();
+
             chunks.push({
                 id,
                 header: currentHeader,
-                content,
+                content: sanitizedContent,
                 tokens: countTokens(currentHeader + '\n' + content),
                 alwaysInclude,
                 triggerKeywords: extractTriggerKeywords(currentHeader, content),

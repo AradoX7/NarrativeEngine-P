@@ -141,13 +141,27 @@ export function minifyLoreBlock(chunks: LoreChunk[]): string {
  * Before: [ASH HUANG (None)] Alive | Affinity: 50/100 (Neutral) | Asian male... | Goals: ...
  * After:  ASH_HUANG Alive aff:50 | Asian male... | panicked | Gim:... Glr:... | 6/5/10/1/7/6
  */
-export function minifyNPC(npc: NPCEntry): string {
+export function minifyNPC(npc: NPCEntry, includeNSFW = false): string {
     const aliases = npc.aliases ? `(${npc.aliases})` : '';
     const name = npc.name.toUpperCase();
     const status = npc.status || 'Alive';
     const aff = npc.affinity ?? 50;
 
-    // Compact appearance: trim to first 80 chars if very long
+    if (npc.primary) {
+        // Primary NPC — preserve full field content, no truncation
+        const parts: string[] = [`[PRIMARY NPC: ${name}${aliases}] ${status} aff:${aff}`];
+        if (npc.appearance)                    parts.push(`appearance: ${npc.appearance}`);
+        if (npc.disposition)                   parts.push(`disposition: ${npc.disposition}`);
+        if (npc.personality)                   parts.push(`personality: ${npc.personality}`);
+        if (npc.voice)                         parts.push(`voice: ${npc.voice}`);
+        if (npc.goals)                         parts.push(`goals: ${npc.goals}`);
+        if (npc.storyRelevance)                parts.push(`relevance: ${npc.storyRelevance}`);
+        if (npc.exampleOutput)                 parts.push(`example: ${npc.exampleOutput}`);
+        if (includeNSFW && npc.nsfwProfile)    parts.push(`[NSFW]\n${npc.nsfwProfile}\n[/NSFW]`);
+        return parts.join('\n');
+    }
+
+    // Supporting NPC — compact single line
     const appearance = (npc.appearance || '?').length > 80
         ? (npc.appearance || '?').substring(0, 80) + '…'
         : (npc.appearance || '?');

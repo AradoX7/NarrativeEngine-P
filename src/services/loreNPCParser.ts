@@ -76,6 +76,13 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
 
         const disposition = get('Disposition') || '';
 
+        const primaryRaw = getAny(['Primary', 'primary']);
+        const isPrimary = primaryRaw.toLowerCase() === 'true';
+
+        // Extract NSFWProfile block — supports multiline prose after the field label
+        const nsfwMatch = body.match(/\*\*NSFWProfile:\*\*\s*([\s\S]*?)(?=\n\*\*[A-Z]|\n#{1,3}\s|$)/i);
+        const nsfwProfile = nsfwMatch ? nsfwMatch[1].trim() : undefined;
+
         npcs.push({
             id: uid(),
             name,
@@ -88,6 +95,8 @@ export function parseNPCsFromLore(chunks: LoreChunk[]): NPCEntry[] {
             storyRelevance: get('StoryRelevance'),
             status: (get('Status') as NPCEntry['status']) || 'Alive',
             affinity: getNum('Affinity', 50),
+            primary: isPrimary || undefined,
+            nsfwProfile: nsfwProfile || undefined,
             voice: getAny(['Voice', 'Speech Pattern', 'Voice & Speech Pattern']),
             personality: getAny(['Personality', 'Personality Traits']) || disposition,
             exampleOutput: getAny(['Example Output', 'Example Dialogue', 'Example Line']),
